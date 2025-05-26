@@ -462,6 +462,7 @@ serve(async (req)=>{
                 required: [
                   "Make",
                   "Model",
+                  "Year",
                   "Engine",
                   "Drivetrain",
                   "Title Status",
