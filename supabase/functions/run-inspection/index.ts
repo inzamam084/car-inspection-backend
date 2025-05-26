@@ -89,7 +89,7 @@ STRICT JSON OUTPUT (no comments)
 “vehicle”: {
     "Make": ["string of vehicle make"],
     "Model": ["string of vehicle model"],
-    "year": integer,
+    "Year": integer,
     "Engine": ["string of vehicle engine"],
     "Drivetrain": ["string of vehicle drivetrain"],
     "Title Status": ["string of title status"],
@@ -423,6 +423,9 @@ serve(async (req)=>{
                   },
                   Model: {
                     type: "string"
+                  },
+                  Year: {
+                    type: "integer"
                   },
                   Engine: {
                     type: "string"
