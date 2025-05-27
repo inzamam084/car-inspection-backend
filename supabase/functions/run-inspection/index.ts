@@ -50,6 +50,23 @@ You are an expert automotive inspector AI with advanced image analysis capabilit
    
    Analyze search results from multiple sources (KBB, Edmunds, AutoTrader, Cars.com, etc.) to establish baseline market value. Apply condition-based adjustments from your inspection findings to determine final fair market value. If web search fails or returns insufficient data, mark finalFairValueUSD as 'Market Data Not Available'.
 
+4. **CRITICAL: Web Search for Expert Advice** - Before finalizing the "advice" field, you MUST perform additional web searches to gather expert opinions and model-specific information. Search for:
+   - "[Year] [Make] [Model] common problems expert review"
+   - "[Year] [Make] [Model] reliability issues automotive experts"
+   - "[Year] [Make] [Model] owner complaints forums"
+   - "[Year] [Make] [Model] advantages features expert opinion"
+   - "[Year] [Make] [Model] buying guide automotive journalists"
+   - "[Year] [Make] [Model] mechanic advice [Location]"
+   
+   Analyze search results from automotive experts, mechanics, automotive journalists, owner forums, and reliability databases (Consumer Reports, J.D. Power, etc.) to provide expert-backed advice. Focus on:
+   - Common issues reported by owners and experts for this specific model/year
+   - Known advantages or standout features of this vehicle
+   - Location-specific expert recommendations (mechanics, climate considerations)
+   - Model-specific maintenance tips from experts
+   - Any recalls, TSBs (Technical Service Bulletins), or known defects
+   
+   Synthesize this expert information into practical, actionable advice (≤60 words) that goes beyond generic inspection recommendations.
+
 4. **Output Format – JSON:** After analysis, output **only** a single JSON object containing:
    - **Vehicle details:** fetch "vehicle" details from provided vehicle details and images. vehicle.location should be physical address and can be fetched from zip code or if provided in the data somewhere else.
    - **A section for each image category** ('exterior', 'interior', 'dashboard', 'paint', 'rust', 'engine', 'undercarriage', 'obd', 'title'). Each of these is an object with:
@@ -409,6 +426,7 @@ serve(async (req)=>{
     const response = await openai.responses.create({
       model: "gpt-4.1",
       tools: [{ type: "web_search_preview" }], // Add web search tool
+      include: ["web_search_call.results"], // Include web search results in response
       input: [
         {
           role: "user",
@@ -919,6 +937,40 @@ serve(async (req)=>{
       }
     });
     console.log("Generated response for inspection ID: ", inspectionId, " with response : ", response);
+    
+    // 6. Extract and log web search activity
+    let webSearchResults = [];
+    let webSearchCount = 0;
+    
+    if (response.output && Array.isArray(response.output)) {
+      for (const outputItem of response.output) {
+        if (outputItem.type === "web_search_call") {
+          webSearchCount++;
+          console.log(`Web Search Call ${webSearchCount}:`, {
+            id: outputItem.id,
+            status: outputItem.status,
+            timestamp: new Date().toISOString()
+          });
+          
+          // If search results are included, log them
+          if (outputItem.results) {
+            console.log(`Web Search Results ${webSearchCount}:`, outputItem.results);
+            webSearchResults.push({
+              searchId: outputItem.id,
+              status: outputItem.status,
+              results: outputItem.results,
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+      }
+    }
+    
+    console.log(`Total web searches performed: ${webSearchCount}`);
+    if (webSearchCount === 0) {
+      console.warn("WARNING: No web searches detected in response - AI may not be using web search tool");
+    }
+    
     let analysisResult;
     let parsedAnalysis;
     try {
@@ -963,6 +1015,8 @@ serve(async (req)=>{
         cost: cost.totalCost,
         total_tokens: cost.totalTokens,
         ai_model: cost.model,
+        web_search_count: webSearchCount,
+        web_search_results: webSearchResults,
         updated_at: new Date().toISOString()
       }).eq("id", reportId);
       if (updateError) {
@@ -981,7 +1035,12 @@ serve(async (req)=>{
       const { data: newReport, error: createError } = await supabase.from("reports").insert({
         inspection_id: inspectionId,
         summary_json: parsedAnalysis,
-        summary: overallSummary
+        summary: overallSummary,
+        cost: cost.totalCost,
+        total_tokens: cost.totalTokens,
+        ai_model: cost.model,
+        web_search_count: webSearchCount,
+        web_search_results: webSearchResults
       }).select("id").single();
       if (createError) {
         console.error("Error creating report:", createError);
