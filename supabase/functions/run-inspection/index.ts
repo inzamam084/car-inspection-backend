@@ -41,33 +41,26 @@ You are an expert automotive inspector AI with advanced image analysis capabilit
    
    Use the VIN (or the decoded make/model/year if available) and mileage to inform your analysis (e.g. knowing the car's age and typical issues for that model). Use the ZIP code to factor in climate-related issues (rust, battery wear, etc.). If history is provided (e.g. "accident in 2019" or "flood salvage"), cross-check that against what you see (e.g. signs of accident repair or water damage) and mention correlations or inconsistencies.
    
-3. **CRITICAL: Web Search for Market Value Research** - Before determining finalFairValueUSD, you MUST perform web searches to gather current market data. Search for:
-   - "[Year] [Make] [Model] [Mileage] market value"
-   - "[Year] [Make] [Model] KBB value"
-   - "[Year] [Make] [Model] for sale [Location/ZIP]"
-   - "[Year] [Make] [Model] Edmunds value"
-   - "[Year] [Make] [Model] AutoTrader prices"
+3. **MANDATORY: Web Search for Market Value Research** - You MUST perform AT LEAST 3 separate web searches to gather current market data. This is NON-NEGOTIABLE. Search for EXACTLY these terms:
+   - Search 1: "[Year] [Make] [Model] [Mileage] market value KBB"
+   - Search 2: "[Year] [Make] [Model] for sale [Location/ZIP] AutoTrader"
+   - Search 3: "[Year] [Make] [Model] Edmunds value pricing"
    
-   Analyze search results from multiple sources (KBB, Edmunds, AutoTrader, Cars.com, etc.) to establish baseline market value. Apply condition-based adjustments from your inspection findings to determine final fair market value. If web search fails or returns insufficient data, mark finalFairValueUSD as 'Market Data Not Available'.
+   After performing these searches, you MUST use the search results to determine a specific dollar amount for finalFairValueUSD. DO NOT return "Market Data Not Available" unless all 3 searches completely fail. Use the search results to establish baseline market value and apply condition-based adjustments from your inspection findings.
 
-4. **CRITICAL: Web Search for Expert Advice** - Before finalizing the "advice" field, you MUST perform additional web searches to gather expert opinions and model-specific information. Search for:
-   - "[Year] [Make] [Model] common problems expert review"
-   - "[Year] [Make] [Model] reliability issues automotive experts"
-   - "[Year] [Make] [Model] owner complaints forums"
-   - "[Year] [Make] [Model] advantages features expert opinion"
-   - "[Year] [Make] [Model] buying guide automotive journalists"
-   - "[Year] [Make] [Model] mechanic advice [Location]"
+4. **MANDATORY: Web Search for Expert Advice** - You MUST perform AT LEAST 2 additional web searches to gather expert opinions and model-specific information. This is NON-NEGOTIABLE. Search for EXACTLY these terms:
+   - Search 4: "[Year] [Make] [Model] common problems reliability issues expert review"
+   - Search 5: "[Year] [Make] [Model] buying guide automotive journalist mechanic advice"
    
-   Analyze search results from automotive experts, mechanics, automotive journalists, owner forums, and reliability databases (Consumer Reports, J.D. Power, etc.) to provide expert-backed advice. Focus on:
+   After performing these searches, you MUST use the search results to provide expert-backed advice that includes:
    - Common issues reported by owners and experts for this specific model/year
    - Known advantages or standout features of this vehicle
-   - Location-specific expert recommendations (mechanics, climate considerations)
    - Model-specific maintenance tips from experts
    - Any recalls, TSBs (Technical Service Bulletins), or known defects
    
    Synthesize this expert information into practical, actionable advice (≤60 words) that goes beyond generic inspection recommendations.
 
-4. **Output Format – JSON:** After analysis, output **only** a single JSON object containing:
+5. **Output Format – JSON:** After analysis, output **only** a single JSON object containing:
    - **Vehicle details:** fetch "vehicle" details from provided vehicle details and images. vehicle.location should be physical address and can be fetched from zip code or if provided in the data somewhere else.
    - **A section for each image category** ('exterior', 'interior', 'dashboard', 'paint', 'rust', 'engine', 'undercarriage', 'obd', 'title'). Each of these is an object with:
      - 'problems': an array of strings describing issues found. If none, use an empty array or an array with a "No issues found" note.
@@ -83,14 +76,14 @@ You are an expert automotive inspector AI with advanced image analysis capabilit
      - 'suggestedMileage': the mileage at which to expect or address this issue.
      - 'explanation': a brief sentence explaining why this issue will likely need attention (e.g. "Brake pads typically wear out by 60k miles; yours have ~5k miles left based on current wear. Replacing them will cost about $300.").
    - **No additional text outside the JSON.** Do not include any explanatory prose or lists besides the JSON structure. **Do NOT output markdown, just raw JSON.** No apologies or self-references. The JSON should be well-formed and parsable.
-5. **Edge Cases:** Handle uncertainties or missing info as follows:
+6. **Edge Cases:** Handle uncertainties or missing info as follows:
    - If an image category is missing or images are unusable, mark that section's 'incomplete:true', and put an appropriate message in 'problems' (e.g. "No images provided, unable to assess").
    - If OBD data is absent or unreadable, set the 'obd' section as incomplete or provide a note like "OBD scan data not available".
    - For obd2 codes, fetch all codes even if user provided codes image and use each obd2 code(e.i P0442) as key and its details inside the object as specified in the schema. 
    - If VIN cannot be verified from photos, include a note under 'title' (or 'exterior' if dash VIN plate image missing) that "Visual VIN verification incomplete".
    - If something expected is not found (e.g. history says accident but no damage visible), you can note that in the relevant section.
    - Always err on the side of transparency – do not guess information that isn't provided. If unsure, state so in the JSON (in a neutral manner).
-6. **Quality Control:** Output a single cohesive JSON object following the above format. Double-check that all keys are present and properly quoted, and that the JSON syntax is valid (no trailing commas, etc.). **Absolutely no additional commentary** – the response should be only the JSON data structure.
+7. **Quality Control:** Output a single cohesive JSON object following the above format. Double-check that all keys are present and properly quoted, and that the JSON syntax is valid (no trailing commas, etc.). **Absolutely no additional commentary** – the response should be only the JSON data structure.
 Remember, you are generating a factual report for a customer based on the inspection. Be objective and detailed in the findings, and ensure the JSON structure strictly follows the requirements so it can be automatically processed.
 Now, given the input data and images, proceed with the analysis and produce the JSON report.
 
@@ -325,7 +318,7 @@ serve(async (req)=>{
       return new Response(JSON.stringify({
         error: "No photos found for inspection"
       }), {
-        status: 400,
+        status: 500,
         headers: {
           "Content-Type": "application/json"
         }
@@ -356,7 +349,6 @@ serve(async (req)=>{
       const masterCategory = photo.category;
       // Get the public URL for the image
       const imageUrl = photo.path;
-      console.log("imageUrl: ", imageUrl);
       imageContents.push({
         type: "input_text",
         text: `Category: ${masterCategory}`
@@ -421,7 +413,7 @@ serve(async (req)=>{
         });
       }
     }
-    console.log("Start inspection..");
+    console.log("Inspection started with the following images attached: ", imageContents);
     // 5. Call OpenAI with the Responses API with Web Search Tool
     const response = await openai.responses.create({
       model: "gpt-4.1",
@@ -943,6 +935,7 @@ serve(async (req)=>{
     let webSearchCount = 0;
     
     if (response.output && Array.isArray(response.output)) {
+      console.log("response.output: ", response.output)
       for (const outputItem of response.output) {
         if (outputItem.type === "web_search_call") {
           webSearchCount++;
