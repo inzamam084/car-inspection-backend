@@ -77,7 +77,7 @@ You are an expert automotive inspector AI with advanced image analysis capabilit
      - 'explanation': a brief sentence explaining why this issue will likely need attention (e.g. "Brake pads typically wear out by 60k miles; yours have ~5k miles left based on current wear. Replacing them will cost about $300.").
    - **No additional text outside the JSON.** Do not include any explanatory prose or lists besides the JSON structure. **Do NOT output markdown, just raw JSON.** No apologies or self-references. The JSON should be well-formed and parsable.
 6. **Edge Cases:** Handle uncertainties or missing info as follows:
-   - If an image category is missing or images are unusable, mark that section's 'incomplete:true', and put an appropriate message in 'problems' (e.g. "No images provided, unable to assess").
+   - Try to run analysis on provided images but if specific category's images are missing or are unusable, mark that category's 'incomplete:true', and put an appropriate message in 'problems' (e.g. "No images provided, unable to assess") for that category.
    - If OBD data is absent or unreadable, set the 'obd' section as incomplete or provide a note like "OBD scan data not available".
    - For obd2 codes, fetch all codes even if user provided codes image and use each obd2 code(e.i P0442) as key and its details inside the object as specified in the schema. 
    - If VIN cannot be verified from photos, include a note under 'title' (or 'exterior' if dash VIN plate image missing) that "Visual VIN verification incomplete".
@@ -417,8 +417,11 @@ serve(async (req)=>{
     // 5. Call OpenAI with the Responses API with Web Search Tool
     const response = await openai.responses.create({
       model: "gpt-4.1",
-      tools: [{ type: "web_search_preview" }], // Add web search tool
-      include: ["web_search_call.results"], // Include web search results in response
+      tools: [{
+        type: "web_search_preview",
+        search_context_size: "high",
+    }],
+      include: ["web_search_call.results"],
       input: [
         {
           role: "user",
