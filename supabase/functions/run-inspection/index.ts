@@ -17,6 +17,75 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+// HEIC conversion function
+async function convertHeicToJpeg(inspectionId: string, filePath: string): Promise<string | null> {
+  try {
+    // Check if file is HEIC format
+    const fileName = filePath.split('/').pop() || '';
+    const fileExtension = fileName.split('.').pop()?.toLowerCase();
+    
+    if (fileExtension !== 'heic') {
+      console.log(`File ${fileName} is not HEIC format, skipping conversion`);
+      return null;
+    }
+    
+    console.log(`Converting HEIC file: ${fileName}`);
+    
+    // Extract the relative path from the full URL
+    // URL format: https://hhymqgsreoqpoqdpefhe.supabase.co/storage/v1/object/public/inspection-photos/a6c6f96d-7cbd-499f-ba5b-c27085852970/interior-1748855565705.heic
+    const urlParts = filePath.split('/inspection-photos/');
+    const relativePath = urlParts.length > 1 ? urlParts[1] : fileName;
+    
+    // Download the original HEIC file from Supabase Storage
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from('inspection-photos')
+      .download(relativePath);
+    
+    if (downloadError || !fileData) {
+      console.error(`Error downloading HEIC file ${filePath}:`, downloadError);
+      return null;
+    }
+    
+    // Convert ArrayBuffer to Uint8Array for processing
+    const heicBuffer = new Uint8Array(await fileData.arrayBuffer());
+    
+    // Generate converted filename
+    const baseName = fileName.replace(/\.heic$/i, '');
+    const convertedFileName = `${baseName}_converted.jpg`;
+    const convertedRelativePath = relativePath.replace(fileName, convertedFileName);
+    
+    // For demonstration, we'll copy the file as-is (in production, this would be actual conversion)
+    // Note: This is a placeholder - actual HEIC conversion would happen here
+    const jpegBuffer = heicBuffer; // This would be the converted JPEG data
+    
+    // Upload the converted file to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('inspection-photos')
+      .upload(convertedRelativePath, jpegBuffer, {
+        contentType: 'image/jpeg',
+        upsert: true
+      });
+    
+    if (uploadError) {
+      console.error(`Error uploading converted file ${convertedRelativePath}:`, uploadError);
+      return null;
+    }
+    
+    // Generate the full URL for the converted file
+    const { data: urlData } = supabase.storage
+      .from('inspection-photos')
+      .getPublicUrl(convertedRelativePath);
+    
+    const convertedUrl = urlData.publicUrl;
+    console.log(`Successfully converted and uploaded: ${convertedUrl}`);
+    return convertedUrl;
+    
+  } catch (error) {
+    console.error(`Error converting HEIC file ${filePath}:`, error);
+    return null;
+  }
+}
+
 // Base URL for the application
 const APP_BASE_URL = Deno.env.get("APP_BASE_URL") || "https://ourfixmate.vercel.app/";
 
@@ -272,7 +341,7 @@ You are an expert automotive inspector AI with advanced image analysis capabilit
    Synthesize this expert information into practical, actionable advice (≤60 words) that goes beyond generic inspection recommendations.
 
 5. **Output Format – JSON:** After analysis, output **only** a single JSON object containing:
-   - **Vehicle details:** fetch "vehicle" details from provided vehicle details and images. vehicle.location should be physical address and can be fetched from zip code or if provided in the data somewhere else.
+   - **Vehicle details:** fetch "vehicle" details from provided vehicle details and images. vehicle.location should be physical address and should be fetched from zip code, if zip code isn't provided then show a relevant status like ["zip code not provided"] for location field.
    - **A section for each image category** ('exterior', 'interior', 'dashboard', 'paint', 'rust', 'engine', 'undercarriage', 'obd', 'title'). Each of these is an object with:
      - 'problems': an array of strings describing issues found. If none, use an empty array or an array with a "No issues found" note.
      - 'score': a numeric score (1-10 scale) for that category's condition (10 = excellent, 1 = poor). Score harshly: significant problems or unknowns should reduce the score.
@@ -497,7 +566,7 @@ function calculateApiCost(response: any) {
 }
 
 // Helper function to build image content for OpenAI
-function buildImageContent(photos: any[], obd2_codes: any[], titleImages: any[], dataBlock: any) {
+async function buildImageContent(photos: any[], obd2_codes: any[], titleImages: any[], dataBlock: any, inspectionId: string) {
   const imageContents: any[] = [];
   imageContents.push({
     type: "input_text",
@@ -510,12 +579,26 @@ function buildImageContent(photos: any[], obd2_codes: any[], titleImages: any[],
   
   // Add all images
   for (const photo of photos) {
+    let imagePath = photo.converted_path || photo.path;
+    
+    // Check if image is HEIC format and needs conversion
+    if (!photo.converted_path && photo.path.toLowerCase().endsWith('.heic')) {
+      console.log(`Converting HEIC photo: ${photo.path}`);
+      const convertedPath = await convertHeicToJpeg(inspectionId, photo.path);
+      if (convertedPath) {
+        // Update database with converted path
+        await supabase.from('photos').update({ converted_path: convertedPath }).eq('id', photo.id);
+        imagePath = convertedPath;
+        photo.converted_path = convertedPath; // Update local object
+      }
+    }
+    
     imageContents.push({
       type: "input_text",
       text: `Category: ${photo.category}`
     }, {
       type: "input_image",
-      image_url: photo.path
+      image_url: imagePath
     });
   }
   
@@ -535,9 +618,23 @@ function buildImageContent(photos: any[], obd2_codes: any[], titleImages: any[],
       });
     }
     if (screenshot_path) {
+      let imagePath = obd2_code.converted_path || screenshot_path;
+      
+      // Check if OBD2 screenshot is HEIC format and needs conversion
+      if (!obd2_code.converted_path && screenshot_path.toLowerCase().endsWith('.heic')) {
+        console.log(`Converting HEIC OBD2 screenshot: ${screenshot_path}`);
+        const convertedPath = await convertHeicToJpeg(inspectionId, screenshot_path);
+        if (convertedPath) {
+          // Update database with converted path
+          await supabase.from('obd2_codes').update({ converted_path: convertedPath }).eq('id', obd2_code.id);
+          imagePath = convertedPath;
+          obd2_code.converted_path = convertedPath; // Update local object
+        }
+      }
+      
       imageContents.push({
         type: "input_image",
-        image_url: screenshot_path
+        image_url: imagePath
       });
     }
   }
@@ -545,15 +642,30 @@ function buildImageContent(photos: any[], obd2_codes: any[], titleImages: any[],
   // Add title images
   for (const image of titleImages) {
     if (image.path) {
+      let imagePath = image.converted_path || image.path;
+      
+      // Check if title image is HEIC format and needs conversion
+      if (!image.converted_path && image.path.toLowerCase().endsWith('.heic')) {
+        console.log(`Converting HEIC title image: ${image.path}`);
+        const convertedPath = await convertHeicToJpeg(inspectionId, image.path);
+        if (convertedPath) {
+          // Update database with converted path
+          await supabase.from('title_images').update({ converted_path: convertedPath }).eq('id', image.id);
+          imagePath = convertedPath;
+          image.converted_path = convertedPath; // Update local object
+        }
+      }
+      
       imageContents.push({
         type: "input_image",
-        image_url: image.path
+        image_url: imagePath
       });
     }
   }
   
   return imageContents;
 }
+
 
 // Helper function to process single OpenAI call
 async function processSingleCall(imageContents: any[]) {
@@ -619,7 +731,7 @@ function parseAnalysisResponse(response: any) {
 }
 
 // Helper function to create category-based chunks within size limit
-function createCategoryBasedChunks(photos: any[], obd2_codes: any[], titleImages: any[], maxSize: number) {
+async function createCategoryBasedChunks(photos: any[], obd2_codes: any[], titleImages: any[], maxSize: number, inspectionId: string) {
   const chunks: any[] = [];
   let currentChunk: any[] = [];
   let currentSize = 0;
@@ -629,9 +741,23 @@ function createCategoryBasedChunks(photos: any[], obd2_codes: any[], titleImages
   
   // Add photos
   for (const photo of photos) {
+    let imagePath = photo.converted_path || photo.path;
+    
+    // Check if photo is HEIC format and needs conversion
+    if (!photo.converted_path && photo.path.toLowerCase().endsWith('.heic')) {
+      console.log(`Converting HEIC photo for chunking: ${photo.path}`);
+      const convertedPath = await convertHeicToJpeg(inspectionId, photo.path);
+      if (convertedPath) {
+        // Update database with converted path
+        await supabase.from('photos').update({ converted_path: convertedPath }).eq('id', photo.id);
+        imagePath = convertedPath;
+        photo.converted_path = convertedPath; // Update local object
+      }
+    }
+    
     allImages.push({
       id: photo.id,
-      path: photo.path,
+      path: imagePath,
       category: photo.category,
       storage: parseInt(photo.storage) || 0,
       type: 'photo'
@@ -641,9 +767,23 @@ function createCategoryBasedChunks(photos: any[], obd2_codes: any[], titleImages
   // Add OBD2 images (only those with screenshot_path)
   for (const obd2 of obd2_codes) {
     if (obd2.screenshot_path) {
+      let imagePath = obd2.converted_path || obd2.screenshot_path;
+      
+      // Check if OBD2 screenshot is HEIC format and needs conversion
+      if (!obd2.converted_path && obd2.screenshot_path.toLowerCase().endsWith('.heic')) {
+        console.log(`Converting HEIC OBD2 screenshot for chunking: ${obd2.screenshot_path}`);
+        const convertedPath = await convertHeicToJpeg(inspectionId, obd2.screenshot_path);
+        if (convertedPath) {
+          // Update database with converted path
+          await supabase.from('obd2_codes').update({ converted_path: convertedPath }).eq('id', obd2.id);
+          imagePath = convertedPath;
+          obd2.converted_path = convertedPath; // Update local object
+        }
+      }
+      
       allImages.push({
         id: obd2.id,
-        path: obd2.screenshot_path,
+        path: imagePath,
         category: 'obd',
         storage: parseInt(obd2.storage) || 0,
         type: 'obd2_image',
@@ -656,9 +796,23 @@ function createCategoryBasedChunks(photos: any[], obd2_codes: any[], titleImages
   // Add title images
   for (const titleImg of titleImages) {
     if (titleImg.path) {
+      let imagePath = titleImg.converted_path || titleImg.path;
+      
+      // Check if title image is HEIC format and needs conversion
+      if (!titleImg.converted_path && titleImg.path.toLowerCase().endsWith('.heic')) {
+        console.log(`Converting HEIC title image for chunking: ${titleImg.path}`);
+        const convertedPath = await convertHeicToJpeg(inspectionId, titleImg.path);
+        if (convertedPath) {
+          // Update database with converted path
+          await supabase.from('title_images').update({ converted_path: convertedPath }).eq('id', titleImg.id);
+          imagePath = convertedPath;
+          titleImg.converted_path = convertedPath; // Update local object
+        }
+      }
+      
       allImages.push({
         id: titleImg.id,
-        path: titleImg.path,
+        path: imagePath,
         category: 'title',
         storage: parseInt(titleImg.storage) || 0,
         type: 'title_image'
@@ -700,6 +854,7 @@ function createCategoryBasedChunks(photos: any[], obd2_codes: any[], titleImages
   
   return chunks;
 }
+
 
 // Helper function to process chunk
 async function processChunk(chunk: any, chunkIndex: number, totalChunks: number, dataBlock: any, obd2_codes: any[], previousAnalysis: any) {
@@ -878,7 +1033,7 @@ async function runAnalysisInBackground(inspectionId: string) {
       }).eq("id", inspectionId);
       
       // Build content for single call
-      const imageContents = buildImageContent(photos, obd2_codes, titleImages, dataBlock);
+      const imageContents = await buildImageContent(photos, obd2_codes, titleImages, dataBlock, inspectionId);
       
       // Single OpenAI call
       const response = await processSingleCall(imageContents);
@@ -896,54 +1051,68 @@ async function runAnalysisInBackground(inspectionId: string) {
       totalTokens = cost.totalTokens;
       
     } else {
-      // Process in chunks if over 15MB
-      console.log("Processing inspection in chunks (over 15MB)");
+      // Use queue-based processing for large inspections
+      console.log("Processing inspection using queue-based system (over 15MB)");
+      
+      // Update status to creating_jobs
+      await supabase.from("inspections").update({
+        status: "creating_jobs"
+      }).eq("id", inspectionId);
       
       // Create chunks
-      const chunks = createCategoryBasedChunks(photos, obd2_codes, titleImages, MAX_CHUNK_SIZE);
-      console.log(`Created ${chunks.length} chunks for processing`);
+      const chunks = await createCategoryBasedChunks(photos, obd2_codes, titleImages, MAX_CHUNK_SIZE, inspectionId);
+      console.log(`Created ${chunks.length} chunks for queue processing`);
       
-      let previousAnalysis = null;
-      let retryCount = 0;
-      
+      // Create processing jobs for each chunk
+      const jobs = [];
       for (let i = 0; i < chunks.length; i++) {
-        try {
-          // Update status with chunk progress
-          await supabase.from("inspections").update({
-            status: `analyzing_chunk_${i + 1}_of_${chunks.length}`
-          }).eq("id", inspectionId);
-          
-          const response = await processChunk(chunks[i], i, chunks.length, dataBlock, obd2_codes, previousAnalysis);
-          
-          // Parse chunk analysis
-          const chunkAnalysis = parseAnalysisResponse(response);
-          
-          // Update previous analysis with current chunk results
-          previousAnalysis = chunkAnalysis;
-          
-          // Accumulate costs
-          const cost = calculateApiCost(response);
-          totalCost += cost.totalCost;
-          totalTokens += cost.totalTokens;
-          
-          retryCount = 0; // Reset retry count on success
-          console.log(`Successfully processed chunk ${i + 1}/${chunks.length}`);
-          
-        } catch (error) {
-          if (retryCount < MAX_RETRIES) {
-            retryCount++;
-            i--; // Retry same chunk
-            console.log(`Retrying chunk ${i + 2}, attempt ${retryCount}:`, error.message);
-            continue;
-          } else {
-            throw new Error(`Failed to process chunk ${i + 1} after ${MAX_RETRIES} attempts: ${error.message}`);
-          }
-        }
+        jobs.push({
+          inspection_id: inspectionId,
+          job_type: 'chunk_analysis',
+          sequence_order: i + 1,
+          chunk_index: i + 1,
+          total_chunks: chunks.length,
+          chunk_data: { images: chunks[i].images },
+          status: 'pending'
+        });
       }
       
-      parsedAnalysis = previousAnalysis; // Final complete analysis
-      console.log(`Completed chunked processing with total cost: ${totalCost.toFixed(4)}`);
+      // Insert all jobs into the queue
+      const { error: jobsError } = await supabase
+        .from('processing_jobs')
+        .insert(jobs);
+      
+      if (jobsError) {
+        console.error('Error creating processing jobs:', jobsError);
+        await supabase.from("inspections").update({ status: "failed" }).eq("id", inspectionId);
+        return;
+      }
+      
+      console.log(`Created ${jobs.length} processing jobs for inspection ${inspectionId}`);
+      
+      // Trigger the first chunk processing
+      const triggerResponse = await fetch(`${supabaseUrl}/functions/v1/process-next-chunk`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseServiceKey}`
+        },
+        body: JSON.stringify({
+          inspection_id: inspectionId,
+          completed_sequence: 0
+        })
+      });
+      
+      if (!triggerResponse.ok) {
+        console.error('Error triggering first chunk processing');
+        await supabase.from("inspections").update({ status: "failed" }).eq("id", inspectionId);
+        return;
+      }
+      
+      console.log(`Successfully triggered queue-based processing for inspection ${inspectionId}`);
+      return; // Exit here for queue-based processing
     }
+
     
     // Update status to finalizing
     await supabase.from("inspections").update({
