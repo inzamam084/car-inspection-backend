@@ -257,18 +257,21 @@ serve(async (req) => {
       reportId = newReport?.id;
     }
     
-    // Update inspection status to 'done' (same as original)
-    await supabase
-      .from("inspections")
-      .update({ status: "done" })
-      .eq("id", inspectionId);
-    
-    // Send email notification (same as original)
+    // Send email notification first
     const vehicleInfo = {
       vin: inspection.vin
     };
     
-    await sendReportEmail(inspection.email, inspectionId, reportId, vehicleInfo, overallSummary);
+    const emailResult = await sendReportEmail(inspection.email, inspectionId, reportId, vehicleInfo, overallSummary);
+    
+    // Update inspection status to 'done' and mark email as sent
+    await supabase
+      .from("inspections")
+      .update({ 
+        status: "done",
+        email_sent: emailResult.success 
+      })
+      .eq("id", inspectionId);
     
     console.log(`Successfully generated final report for inspection ${inspectionId}`);
     
