@@ -61,7 +61,7 @@ const EXPERT_ADVICE_PROMPT = `You are an expert automotive consultant and techni
   * Model-specific maintenance tips from experts
   * Any recalls, TSBs (Technical Service Bulletins), or known defects
 - Synthesize expert information with inspection findings
-- MUST include web_search_results field with all search results you used in your analysis
+- MUST include web_search_results field with all search results you used in your analysis but do not include them in the advice field
 
 **ADVICE SYNTHESIS LOGIC**:
 1. Identify model-specific issues from expert sources
