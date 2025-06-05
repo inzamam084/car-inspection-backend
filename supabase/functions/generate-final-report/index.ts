@@ -154,8 +154,36 @@ serve(async (req) => {
       });
     }
     
-    // The final chunk result IS our complete analysis (following original pattern)
-    const parsedAnalysis = finalChunkJob.chunk_result;
+    // Get the base analysis from the final chunk
+    let parsedAnalysis = finalChunkJob.chunk_result;
+    
+    // Get fair market value result
+    const { data: fairMarketValueJob } = await supabase
+      .from("processing_jobs")
+      .select("chunk_result")
+      .eq("inspection_id", inspectionId)
+      .eq("job_type", "fair_market_value")
+      .eq("status", "completed")
+      .single();
+    
+    // Get expert advice result
+    const { data: expertAdviceJob } = await supabase
+      .from("processing_jobs")
+      .select("chunk_result")
+      .eq("inspection_id", inspectionId)
+      .eq("job_type", "expert_advice")
+      .eq("status", "completed")
+      .single();
+    
+    // Merge the results
+    if (fairMarketValueJob && fairMarketValueJob.chunk_result) {
+      parsedAnalysis.finalFairValueUSD = fairMarketValueJob.chunk_result.finalFairValueUSD;
+      parsedAnalysis.priceAdjustment = fairMarketValueJob.chunk_result.priceAdjustment;
+    }
+    
+    if (expertAdviceJob && expertAdviceJob.chunk_result) {
+      parsedAnalysis.advice = expertAdviceJob.chunk_result.advice;
+    }
     
     // Get inspection details
     const { data: inspection, error: inspectionError } = await supabase
@@ -173,42 +201,27 @@ serve(async (req) => {
       });
     }
     
-    // Calculate total cost and tokens from all completed chunks
-    const { data: allChunks, error: chunksError } = await supabase
+    // Calculate total costs from all jobs
+    const costData = await calculateTotalCostsFromJobs(inspectionId);
+    
+    // Get chunk count for reporting
+    const { data: allChunks } = await supabase
       .from("processing_jobs")
-      .select("*")
+      .select("id")
       .eq("inspection_id", inspectionId)
       .eq("job_type", "chunk_analysis")
       .eq("status", "completed");
     
-    let totalCost = 0;
-    let totalTokens = 0;
-    let webSearchResults: any[] = [];
-    let webSearchCount = 0;
-    
-    // In the queue-based system, we would need to store cost/token data in processing_jobs
-    // For now, use placeholder calculations based on chunk count
-    if (allChunks) {
-      totalCost = allChunks.length * 0.1; // Placeholder: $0.10 per chunk
-      totalTokens = allChunks.length * 10000; // Placeholder: 10k tokens per chunk
-      
-      // Note: In a real implementation, you'd store actual cost/token data from each OpenAI call
-      // in the processing_jobs table and sum them here
-    }
-    
-    // Extract overall summary from the final analysis (same as original)
+    // Extract overall summary from the final analysis
     const overallSummary = `Overall condition score: ${parsedAnalysis.overallConditionScore}/10. ${parsedAnalysis.overallComments || ""}`;
     
-    // Create or update the report with the analysis results (same pattern as original)
+    // Create or update the report with the analysis results
     let reportId;
     const { data: existingReport, error: reportCheckError } = await supabase
       .from("reports")
       .select("id")
       .eq("inspection_id", inspectionId)
       .maybeSingle();
-
-    // Calculate total costs from all chunks
-    const costData = await calculateTotalCostsFromJobs(inspectionId);
 
     
     if (existingReport) {
@@ -233,11 +246,11 @@ serve(async (req) => {
           inspection_id: inspectionId,
           summary_json: parsedAnalysis,
           summary: overallSummary,
-          cost: totalCost,
-          total_tokens: totalTokens,
+          cost: costData.totalCost,
+          total_tokens: costData.totalTokens,
           ai_model: "gpt-4.1",
-          web_search_count: webSearchCount,
-          web_search_results: webSearchResults
+          web_search_count: costData.totalWebSearchCount,
+          web_search_results: costData.allWebSearchResults
         })
         .select("id")
         .single();

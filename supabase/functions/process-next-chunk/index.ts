@@ -196,13 +196,11 @@ const VEHICLE_REPORT_SCHEMA = {
       required: ["baselineBand", "adjustmentUSD", "explanation"],
       additionalProperties: false
     },
-    finalFairValueUSD: { type: "string" },
-    advice: { type: "string" }
   },
   required: [
     "vehicle", "exterior", "interior", "dashboard", "paint", "rust", "engine",
     "undercarriage", "title", "records", "overallConditionScore", "overallComments",
-    "ownershipCostForecast", "priceAdjustment", "finalFairValueUSD", "advice"
+    "ownershipCostForecast", "priceAdjustment"
   ],
   additionalProperties: false
 };
@@ -237,26 +235,7 @@ You are an expert automotive inspector AI with advanced image analysis capabilit
    
    Use the VIN (or the decoded make/model/year if available) and mileage to inform your analysis (e.g. knowing the car's age and typical issues for that model). Use the ZIP code to factor in climate-related issues (rust, battery wear, etc.). If history is provided (e.g. "accident in 2019" or "flood salvage"), cross-check that against what you see (e.g. signs of accident repair or water damage) and mention correlations or inconsistencies.
    
-3. **MANDATORY: Web Search for Market Value Research** - You MUST perform AT LEAST 3 separate web searches to gather current market data. This is NON-NEGOTIABLE. Search for EXACTLY these terms:
-   - Search 1: "[Year] [Make] [Model] [Mileage] market value KBB"
-   - Search 2: "[Year] [Make] [Model] for sale [Location/ZIP] AutoTrader"
-   - Search 3: "[Year] [Make] [Model] Edmunds value pricing"
-   
-   After performing these searches, you MUST use the search results to determine a specific dollar amount for finalFairValueUSD. DO NOT return "Market Data Not Available" unless all 3 searches completely fail. Use the search results to establish baseline market value and apply condition-based adjustments from your inspection findings.
-
-4. **MANDATORY: Web Search for Expert Advice** - You MUST perform AT LEAST 2 additional web searches to gather expert opinions and model-specific information. This is NON-NEGOTIABLE. Search for EXACTLY these terms:
-   - Search 4: "[Year] [Make] [Model] common problems reliability issues expert review"
-   - Search 5: "[Year] [Make] [Model] buying guide automotive journalist mechanic advice"
-   
-   After performing these searches, you MUST use the search results to provide expert-backed advice that includes:
-   - Common issues reported by owners and experts for this specific model/year
-   - Known advantages or standout features of this vehicle
-   - Model-specific maintenance tips from experts
-   - Any recalls, TSBs (Technical Service Bulletins), or known defects
-   
-   Synthesize this expert information into practical, actionable advice (≤60 words) that goes beyond generic inspection recommendations.
-
-5. **Output Format – JSON:** After analysis, output **only** a single JSON object containing:
+3. **Output Format – JSON:** After analysis, output **only** a single JSON object containing:
    - **Vehicle details:** fetch "vehicle" details from provided vehicle details and images. vehicle.location should be physical address and should be fetched from zip code, if zip code isn't provided then show a relevant status like ["zip code not provided"] for location field. Use user provided mileage from DATA_BLOCK for vehicle.Mileage field. vehicle.Engine, vehicle.Make, vehicle.Model, vehicle.Year should be fetched from VIN or user provided data.
    - **A section for each image category** ('exterior', 'interior', 'dashboard', 'paint', 'rust', 'engine', 'undercarriage', 'obd', 'title'). Each of these is an object with:
      - 'problems': an array of strings describing issues found. If none, use an empty array or an array with a "No issues found" note.
@@ -359,9 +338,7 @@ STRICT JSON OUTPUT (no comments)
 "explanation": "string"
 }
 ],
-"priceAdjustment": {…},
-"finalFairValueUSD": "string",
-"advice": "≤60 words"
+"priceAdjustment": {…}
 }
 
 QUALITY CHECK
@@ -631,16 +608,42 @@ serve(async (req) => {
     
     console.log(`Looking for next job after sequence ${completedSequence} for inspection ${inspectionId}`);
     
-    // Find the next pending job
-    const { data: nextJob, error: jobError } = await supabase
+    // First, check if there are any pending chunk_analysis jobs
+    const { data: pendingChunkJobs, error: chunkJobError } = await supabase
       .from("processing_jobs")
       .select("*")
       .eq("inspection_id", inspectionId)
+      .eq("job_type", "chunk_analysis")
       .eq("status", "pending")
       .gt("sequence_order", completedSequence)
       .order("sequence_order", { ascending: true })
       .limit(1)
       .maybeSingle();
+    
+    let nextJob = null;
+    let jobError = null;
+    
+    if (chunkJobError) {
+      jobError = chunkJobError;
+    } else if (pendingChunkJobs) {
+      // Found pending chunk analysis job
+      nextJob = pendingChunkJobs;
+    } else {
+      // No pending chunk jobs, check for other job types (fair_market_value, expert_advice)
+      const { data: otherJobs, error: otherJobError } = await supabase
+        .from("processing_jobs")
+        .select("*")
+        .eq("inspection_id", inspectionId)
+        .in("job_type", ["fair_market_value", "expert_advice"])
+        .eq("status", "pending")
+        .order("sequence_order", { ascending: true });
+      
+      if (otherJobError) {
+        jobError = otherJobError;
+      } else {
+        nextJob = otherJobs;
+      }
+    }
     
     if (jobError) {
       console.error("Error fetching next job:", jobError);
@@ -652,7 +655,7 @@ serve(async (req) => {
       });
     }
     
-    if (!nextJob) {
+    if (!nextJob || (Array.isArray(nextJob) && nextJob.length === 0)) {
       console.log("No more pending jobs found");
       return new Response(JSON.stringify({
         success: true,
@@ -663,7 +666,53 @@ serve(async (req) => {
       });
     }
     
-    console.log(`Found next job: ${nextJob.id} (sequence ${nextJob.sequence_order})`);
+    // Handle array of jobs (parallel processing for fair_market_value and expert_advice)
+    if (Array.isArray(nextJob)) {
+      console.log(`Found ${nextJob.length} jobs to process in parallel`);
+      
+      // Process all jobs in parallel
+      const promises = nextJob.map(async (job) => {
+        if (job.job_type === "fair_market_value") {
+          return fetch(`${supabaseUrl}/functions/v1/fair-market-value-researcher`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${supabaseServiceKey}`
+            },
+            body: JSON.stringify({
+              inspection_id: inspectionId
+            })
+          });
+        } else if (job.job_type === "expert_advice") {
+          return fetch(`${supabaseUrl}/functions/v1/expert-advice-researcher`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${supabaseServiceKey}`
+            },
+            body: JSON.stringify({
+              inspection_id: inspectionId
+            })
+          });
+        }
+      });
+      
+      // Wait for all parallel jobs to start
+      await Promise.all(promises);
+      
+      return new Response(JSON.stringify({
+        success: true,
+        message: `Started ${nextJob.length} jobs in parallel`,
+        jobIds: nextJob.map(job => job.id),
+        jobTypes: nextJob.map(job => job.job_type)
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    
+    // Handle single job (must be chunk_analysis since we fetch chunks first)
+    console.log(`Found next job: ${nextJob.id} (sequence ${nextJob.sequence_order}) of type: ${nextJob.job_type}`);
     
     // Update job status to processing
     await supabase

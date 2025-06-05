@@ -350,6 +350,28 @@ async function runAnalysisInBackground(inspectionId: string) {
       });
     }
     
+    // Add fair market value and expert advice jobs after chunk analysis
+    const nextSequence = chunks.length + 1;
+    jobs.push({
+      inspection_id: inspectionId,
+      job_type: 'fair_market_value',
+      sequence_order: nextSequence,
+      chunk_index: 1,
+      total_chunks: 1,
+      chunk_data: {},
+      status: 'pending'
+    });
+    
+    jobs.push({
+      inspection_id: inspectionId,
+      job_type: 'expert_advice',
+      sequence_order: nextSequence + 1,
+      chunk_index: 1,
+      total_chunks: 1,
+      chunk_data: {},
+      status: 'pending'
+    });
+    
     // Insert all jobs into the queue
     const { error: jobsError } = await supabase
       .from('processing_jobs')
