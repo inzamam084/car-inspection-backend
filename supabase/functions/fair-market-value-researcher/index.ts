@@ -34,6 +34,14 @@ const FAIR_MARKET_VALUE_SCHEMA = {
       },
       required: ["baselineBand", "adjustmentUSD", "explanation"],
       additionalProperties: false
+    },
+    web_search_results: {
+      type: "array",
+      description: "All web search results used in the analysis",
+      items: { 
+        type: "object",
+        additionalProperties: false
+      }
     }
   },
   required: ["finalFairValueUSD", "priceAdjustment"],
@@ -60,6 +68,7 @@ const FAIR_MARKET_VALUE_PROMPT = `You are an expert automotive appraiser and mar
 - DO NOT return "Market Data Not Available" unless all searches completely fail
 - Base adjustments on actual inspection findings and market data
 - Provide detailed explanations for price adjustments
+- MUST include web_search_results field with all search results you used in your analysis
 
 **PRICING LOGIC**:
 1. Start with baseline market value from web searches
@@ -187,43 +196,18 @@ async function processFairMarketValueInBackground(jobId: string, inspectionId: s
       `${year} ${make} ${model} trade-in value NADA blue book pricing`
     ];
     
-    // Build analysis prompt with vehicle and inspection data
+    // Build analysis prompt with complete inspection data
     const analysisPrompt = `${FAIR_MARKET_VALUE_PROMPT}
 
-**VEHICLE INFORMATION**:
-Year: ${year}
-Make: ${make}
-Model: ${model}
-Mileage: ${mileage}
-Location: ${location}
-VIN: ${vehicle.VIN}
-
-**INSPECTION RESULTS**:
-Overall Condition Score: ${inspectionResults.overallConditionScore}/10
-Overall Comments: ${inspectionResults.overallComments}
-
-**CONDITION BREAKDOWN**:
-- Exterior: Score ${inspectionResults.exterior?.score}/10, Repair Cost: $${inspectionResults.exterior?.estimatedRepairCost}
-- Interior: Score ${inspectionResults.interior?.score}/10, Repair Cost: $${inspectionResults.interior?.estimatedRepairCost}
-- Engine: Score ${inspectionResults.engine?.score}/10, Repair Cost: $${inspectionResults.engine?.estimatedRepairCost}
-- Paint: Score ${inspectionResults.paint?.score}/10, Repair Cost: $${inspectionResults.paint?.estimatedRepairCost}
-- Rust: Score ${inspectionResults.rust?.score}/10, Repair Cost: $${inspectionResults.rust?.estimatedRepairCost}
-
-**TOTAL ESTIMATED REPAIR COSTS**: $${
-  (inspectionResults.exterior?.estimatedRepairCost || 0) +
-  (inspectionResults.interior?.estimatedRepairCost || 0) +
-  (inspectionResults.engine?.estimatedRepairCost || 0) +
-  (inspectionResults.paint?.estimatedRepairCost || 0) +
-  (inspectionResults.rust?.estimatedRepairCost || 0) +
-  (inspectionResults.dashboard?.estimatedRepairCost || 0) +
-  (inspectionResults.undercarriage?.estimatedRepairCost || 0) +
-  (inspectionResults.title?.estimatedRepairCost || 0)
-}
+**COMPLETE INSPECTION RESULTS**:
+${JSON.stringify(inspectionResults, null, 2)}
 
 **SEARCH TERMS TO USE**:
 1. "${searchTerms[0]}"
 2. "${searchTerms[1]}"
 3. "${searchTerms[2]}"
+4. "${searchTerms[3]}"
+5. "${searchTerms[4]}"
 
 Perform the web searches and analyze the results to determine the fair market value.`;
     
@@ -232,7 +216,7 @@ Perform the web searches and analyze the results to determine the fair market va
       model: "gpt-4.1",
       tools: [{ 
         type: "web_search_preview",
-        search_context_size: "medium"
+        search_context_size: "high"
       }],
       input: analysisPrompt,
       temperature: 0.1,
@@ -257,6 +241,14 @@ Perform the web searches and analyze the results to determine the fair market va
     const cost = calculateApiCost(response);
     const searchResults = extractWebSearchResults(response);
     
+    // Ensure web_search_results are included in the analysis result
+    if (!marketValueAnalysis.web_search_results) {
+      marketValueAnalysis.web_search_results = searchResults.webSearchResults;
+    }
+    if (Array.isArray(marketValueAnalysis.web_search_results)) {
+      searchResults.webSearchCount = marketValueAnalysis.web_search_results.length;
+    }
+    
     // Update job with results
     const updateResult = await supabase
       .from("processing_jobs")
@@ -266,7 +258,7 @@ Perform the web searches and analyze the results to determine the fair market va
         cost: cost.totalCost,
         total_tokens: cost.totalTokens,
         web_search_count: searchResults.webSearchCount,
-        web_search_results: searchResults.webSearchResults,
+        web_search_results: marketValueAnalysis.web_search_results,
         completed_at: new Date().toISOString()
       })
       .eq("id", job.id);

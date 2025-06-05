@@ -24,6 +24,14 @@ const EXPERT_ADVICE_SCHEMA = {
     advice: { 
       type: "string",
       description: "Expert advice based on web search results and inspection findings (≤60 words)"
+    },
+    web_search_results: {
+      type: "array",
+      description: "All web search results used in the analysis",
+      items: { 
+        type: "object",
+        additionalProperties: false
+      }
     }
   },
   required: ["advice"],
@@ -53,6 +61,7 @@ const EXPERT_ADVICE_PROMPT = `You are an expert automotive consultant and techni
   * Model-specific maintenance tips from experts
   * Any recalls, TSBs (Technical Service Bulletins), or known defects
 - Synthesize expert information with inspection findings
+- MUST include web_search_results field with all search results you used in your analysis
 
 **ADVICE SYNTHESIS LOGIC**:
 1. Identify model-specific issues from expert sources
@@ -193,39 +202,18 @@ async function processExpertAdviceInBackground(jobId: string, inspectionId: stri
       keyIssues.push(`Rust issues: ${inspectionResults.rust.problems.join(', ')}`);
     }
     
-    // Build analysis prompt with vehicle and inspection data
+    // Build analysis prompt with complete inspection data
     const analysisPrompt = `${EXPERT_ADVICE_PROMPT}
 
-**VEHICLE INFORMATION**:
-Year: ${year}
-Make: ${make}
-Model: ${model}
-Mileage: ${mileage}
-Location: ${location}
-VIN: ${vehicle.VIN}
-
-**INSPECTION RESULTS**:
-Overall Condition Score: ${inspectionResults.overallConditionScore}/10
-Overall Comments: ${inspectionResults.overallComments}
-
-**KEY INSPECTION FINDINGS**:
-${keyIssues.length > 0 ? keyIssues.join('\n') : 'No major issues identified in inspection'}
-
-**CONDITION BREAKDOWN**:
-- Exterior: Score ${inspectionResults.exterior?.score}/10, Issues: ${inspectionResults.exterior?.problems?.length || 0}
-- Interior: Score ${inspectionResults.interior?.score}/10, Issues: ${inspectionResults.interior?.problems?.length || 0}
-- Engine: Score ${inspectionResults.engine?.score}/10, Issues: ${inspectionResults.engine?.problems?.length || 0}
-- Paint: Score ${inspectionResults.paint?.score}/10, Issues: ${inspectionResults.paint?.problems?.length || 0}
-- Rust: Score ${inspectionResults.rust?.score}/10, Issues: ${inspectionResults.rust?.problems?.length || 0}
-
-**OWNERSHIP COST FORECAST**:
-${inspectionResults.ownershipCostForecast?.map(item => 
-  `- ${item.component}: ${item.expectedIssue} at ${item.suggestedMileage} miles ($${item.estimatedCostUSD})`
-).join('\n') || 'No specific ownership costs forecasted'}
+**COMPLETE INSPECTION RESULTS**:
+${JSON.stringify(inspectionResults, null, 2)}
 
 **SEARCH TERMS TO USE**:
 1. "${searchTerms[0]}"
 2. "${searchTerms[1]}"
+3. "${searchTerms[2]}"
+4. "${searchTerms[3]}"
+5. "${searchTerms[4]}"
 
 Perform the web searches and analyze the results to provide expert advice that combines web research with actual inspection findings.`;
     
@@ -234,7 +222,7 @@ Perform the web searches and analyze the results to provide expert advice that c
       model: "gpt-4.1",
       tools: [{ 
         type: "web_search_preview",
-        search_context_size: "medium"
+        search_context_size: "high"
       }],
       input: analysisPrompt,
       temperature: 0.1,
@@ -259,6 +247,14 @@ Perform the web searches and analyze the results to provide expert advice that c
     const cost = calculateApiCost(response);
     const searchResults = extractWebSearchResults(response);
     
+    // Ensure web_search_results are included in the analysis result
+    if (!expertAdviceAnalysis.web_search_results) {
+      expertAdviceAnalysis.web_search_results = searchResults.webSearchResults;
+    }
+    if (Array.isArray(expertAdviceAnalysis.web_search_results)) {
+      searchResults.webSearchCount = expertAdviceAnalysis.web_search_results.length;
+    }
+    
     // Update job with results
     const updateResult = await supabase
       .from("processing_jobs")
@@ -268,7 +264,7 @@ Perform the web searches and analyze the results to provide expert advice that c
         cost: cost.totalCost,
         total_tokens: cost.totalTokens,
         web_search_count: searchResults.webSearchCount,
-        web_search_results: searchResults.webSearchResults,
+        web_search_results: expertAdviceAnalysis.web_search_results,
         completed_at: new Date().toISOString()
       })
       .eq("id", job.id);
