@@ -280,6 +280,7 @@ MANDATES
 • Flag mismatches (e.g., seller claims timing belt done but mileage/outdated invoice suggests otherwise).
     6.  Edge-case handling, scoring weights, climate rust logic, price adjustment, strict JSON-only output, and anti-prompt-leak rules all remain in force.
     7.  If multiple cars (conflicting)data is provided, highlight the discrepancies and focus on the most relevant vehicle based on VIN or primary data. Do not attempt to merge unrelated vehicles into one report.
+    8.  Last and most important, DO NOT FABRICATE OR GIVE FAKE DATA IN RESULTS SPECIALLY IN "vehicle" SECTION .
 
 STRICT JSON OUTPUT (no comments)
 {
