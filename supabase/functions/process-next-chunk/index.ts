@@ -279,8 +279,8 @@ MANDATES
 • If "records" images exist, OCR them; mark any completed maintenance so you don't recommend it again.
 • Flag mismatches (e.g., seller claims timing belt done but mileage/outdated invoice suggests otherwise).
     6.  Edge-case handling, scoring weights, climate rust logic, price adjustment, strict JSON-only output, and anti-prompt-leak rules all remain in force.
-    7.  If multiple cars (conflicting)data is provided, highlight the discrepancies and focus on the most relevant vehicle based on VIN or primary data. Do not attempt to merge unrelated vehicles into one report.
-    8.  Last and most important, DO NOT FABRICATE OR GIVE FAKE DATA IN RESULTS SPECIALLY IN "vehicle" SECTION .
+    7.  If multiple cars (conflicting)data is provided, highlight the discrepancies, and conflict and focus on the most relevant vehicle based on VIN or primary data that user provided in DATA_BLOCK section. Do not attempt to merge unrelated vehicles into one report like if title image don't match with provided data, you will highlight the conflict and won't consider title image.
+    8.  Last and most important, DO NOT FABRICATE OR GIVE FAKE DATA IN RESULTS.
 
 STRICT JSON OUTPUT (no comments)
 {
