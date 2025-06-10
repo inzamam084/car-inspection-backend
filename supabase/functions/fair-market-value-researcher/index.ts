@@ -302,27 +302,21 @@ serve(async (req) => {
       .select("*")
       .eq("inspection_id", inspectionId)
       .eq("job_type", "fair_market_value")
-      .eq("status", "pending")
+      .eq("status", "processing")
       .single();
     
     if (jobError || !job) {
       console.error("Error fetching fair market value job:", jobError);
       return new Response(JSON.stringify({
-        error: "No pending fair market value job found"
+        error: "No processing fair market value job found"
       }), {
         status: 404,
         headers: { "Content-Type": "application/json" }
       });
     }
     
-    // Update job status to processing
-    await supabase
-      .from("processing_jobs")
-      .update({
-        status: "processing",
-        started_at: new Date().toISOString()
-      })
-      .eq("id", job.id);
+    // Job is already set to processing by process-next-chunk
+    // No need to update status again
     
     // Start background processing using EdgeRuntime.waitUntil
     if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {

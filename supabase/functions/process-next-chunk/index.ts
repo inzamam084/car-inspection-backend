@@ -609,42 +609,16 @@ serve(async (req) => {
     
     console.log(`Looking for next job after sequence ${completedSequence} for inspection ${inspectionId}`);
     
-    // First, check if there are any pending chunk_analysis jobs
-    const { data: pendingChunkJobs, error: chunkJobError } = await supabase
+    // Find the next pending job by sequence order (any job type)
+    const { data: nextJob, error: jobError } = await supabase
       .from("processing_jobs")
       .select("*")
       .eq("inspection_id", inspectionId)
-      .eq("job_type", "chunk_analysis")
       .eq("status", "pending")
       .gt("sequence_order", completedSequence)
       .order("sequence_order", { ascending: true })
       .limit(1)
       .maybeSingle();
-    
-    let nextJob = null;
-    let jobError = null;
-    
-    if (chunkJobError) {
-      jobError = chunkJobError;
-    } else if (pendingChunkJobs) {
-      // Found pending chunk analysis job
-      nextJob = pendingChunkJobs;
-    } else {
-      // No pending chunk jobs, check for other job types (fair_market_value, expert_advice)
-      const { data: otherJobs, error: otherJobError } = await supabase
-        .from("processing_jobs")
-        .select("*")
-        .eq("inspection_id", inspectionId)
-        .in("job_type", ["fair_market_value", "expert_advice"])
-        .eq("status", "pending")
-        .order("sequence_order", { ascending: true });
-      
-      if (otherJobError) {
-        jobError = otherJobError;
-      } else {
-        nextJob = otherJobs;
-      }
-    }
     
     if (jobError) {
       console.error("Error fetching next job:", jobError);
@@ -656,7 +630,7 @@ serve(async (req) => {
       });
     }
     
-    if (!nextJob || (Array.isArray(nextJob) && nextJob.length === 0)) {
+    if (!nextJob) {
       console.log("No more pending jobs found");
       return new Response(JSON.stringify({
         success: true,
@@ -667,52 +641,7 @@ serve(async (req) => {
       });
     }
     
-    // Handle array of jobs (parallel processing for fair_market_value and expert_advice)
-    if (Array.isArray(nextJob)) {
-      console.log(`Found ${nextJob.length} jobs to process in parallel`);
-      
-      // Process all jobs in parallel
-      const promises = nextJob.map(async (job) => {
-        if (job.job_type === "fair_market_value") {
-          return fetch(`${supabaseUrl}/functions/v1/fair-market-value-researcher`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${supabaseServiceKey}`
-            },
-            body: JSON.stringify({
-              inspection_id: inspectionId
-            })
-          });
-        } else if (job.job_type === "expert_advice") {
-          return fetch(`${supabaseUrl}/functions/v1/expert-advice-researcher`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${supabaseServiceKey}`
-            },
-            body: JSON.stringify({
-              inspection_id: inspectionId
-            })
-          });
-        }
-      });
-      
-      // Wait for all parallel jobs to start
-      await Promise.all(promises);
-      
-      return new Response(JSON.stringify({
-        success: true,
-        message: `Started ${nextJob.length} jobs in parallel`,
-        jobIds: nextJob.map(job => job.id),
-        jobTypes: nextJob.map(job => job.job_type)
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
-      });
-    }
-    
-    // Handle single job (must be chunk_analysis since we fetch chunks first)
+    // Handle single job (chunk_analysis, fair_market_value, or expert_advice)
     console.log(`Found next job: ${nextJob.id} (sequence ${nextJob.sequence_order}) of type: ${nextJob.job_type}`);
     
     // Update job status to processing
@@ -724,27 +653,73 @@ serve(async (req) => {
       })
       .eq("id", nextJob.id);
     
-    // Start background processing using EdgeRuntime.waitUntil
-    if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
-      EdgeRuntime.waitUntil(processChunkInBackground(nextJob.id, inspectionId));
-    } else {
-      // Fallback for environments without EdgeRuntime.waitUntil
-      processChunkInBackground(nextJob.id, inspectionId).catch(error => {
-        console.error(`Background chunk processing failed for job ${nextJob.id}:`, error);
+    // Handle different job types
+    if (nextJob.job_type === "chunk_analysis") {
+      // Start background processing for chunk analysis
+      if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
+        EdgeRuntime.waitUntil(processChunkInBackground(nextJob.id, inspectionId));
+      } else {
+        // Fallback for environments without EdgeRuntime.waitUntil
+        processChunkInBackground(nextJob.id, inspectionId).catch(error => {
+          console.error(`Background chunk processing failed for job ${nextJob.id}:`, error);
+        });
+      }
+      
+      return new Response(JSON.stringify({
+        success: true,
+        message: "Chunk processing started in background",
+        jobId: nextJob.id,
+        chunkIndex: nextJob.chunk_index,
+        totalChunks: nextJob.total_chunks
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    } else if (nextJob.job_type === "fair_market_value") {
+      // Trigger fair market value researcher
+      const response = await fetch(`${supabaseUrl}/functions/v1/fair-market-value-researcher`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseServiceKey}`
+        },
+        body: JSON.stringify({
+          inspection_id: inspectionId
+        })
+      });
+      
+      return new Response(JSON.stringify({
+        success: true,
+        message: "Fair market value analysis started",
+        jobId: nextJob.id,
+        jobType: nextJob.job_type
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    } else if (nextJob.job_type === "expert_advice") {
+      // Trigger expert advice researcher
+      const response = await fetch(`${supabaseUrl}/functions/v1/expert-advice-researcher`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseServiceKey}`
+        },
+        body: JSON.stringify({
+          inspection_id: inspectionId
+        })
+      });
+      
+      return new Response(JSON.stringify({
+        success: true,
+        message: "Expert advice analysis started",
+        jobId: nextJob.id,
+        jobType: nextJob.job_type
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
       });
     }
-    
-    // Return immediate response
-    return new Response(JSON.stringify({
-      success: true,
-      message: "Chunk processing started in background",
-      jobId: nextJob.id,
-      chunkIndex: nextJob.chunk_index,
-      totalChunks: nextJob.total_chunks
-    }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    });
     
   } catch (error) {
     console.error("Unexpected error:", error);

@@ -308,27 +308,21 @@ serve(async (req) => {
       .select("*")
       .eq("inspection_id", inspectionId)
       .eq("job_type", "expert_advice")
-      .eq("status", "pending")
+      .eq("status", "processing")
       .single();
     
     if (jobError || !job) {
       console.error("Error fetching expert advice job:", jobError);
       return new Response(JSON.stringify({
-        error: "No pending expert advice job found"
+        error: "No processing expert advice job found"
       }), {
         status: 404,
         headers: { "Content-Type": "application/json" }
       });
     }
     
-    // Update job status to processing
-    await supabase
-      .from("processing_jobs")
-      .update({
-        status: "processing",
-        started_at: new Date().toISOString()
-      })
-      .eq("id", job.id);
+    // Job is already set to processing by process-next-chunk
+    // No need to update status again
     
     // Start background processing using EdgeRuntime.waitUntil
     if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
