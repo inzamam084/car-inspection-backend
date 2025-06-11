@@ -157,32 +157,30 @@ serve(async (req) => {
     // Get the base analysis from the final chunk
     let parsedAnalysis = finalChunkJob.chunk_result;
     
-    // Get fair market value result
-    const { data: fairMarketValueJob } = await supabase
+    // Get all completed jobs for this inspection in sequence order
+    const { data: allJobs } = await supabase
       .from("processing_jobs")
-      .select("chunk_result")
+      .select("job_type, chunk_result, sequence_order")
       .eq("inspection_id", inspectionId)
-      .eq("job_type", "fair_market_value")
       .eq("status", "completed")
-      .single();
+      .order("sequence_order", { ascending: true });
     
-    // Get expert advice result
-    const { data: expertAdviceJob } = await supabase
-      .from("processing_jobs")
-      .select("chunk_result")
-      .eq("inspection_id", inspectionId)
-      .eq("job_type", "expert_advice")
-      .eq("status", "completed")
-      .single();
-    
-    // Merge the results
-    if (fairMarketValueJob && fairMarketValueJob.chunk_result) {
-      parsedAnalysis.finalFairValueUSD = fairMarketValueJob.chunk_result.finalFairValueUSD;
-      parsedAnalysis.priceAdjustment = fairMarketValueJob.chunk_result.priceAdjustment;
-    }
-    
-    if (expertAdviceJob && expertAdviceJob.chunk_result) {
-      parsedAnalysis.advice = expertAdviceJob.chunk_result.advice;
+    // Merge results from each agent
+    if (allJobs) {
+      for (const job of allJobs) {
+        if (job.job_type === "ownership_cost_forecast" && job.chunk_result?.ownershipCostForecast) {
+          parsedAnalysis.ownershipCostForecast = job.chunk_result.ownershipCostForecast;
+        } else if (job.job_type === "fair_market_value" && job.chunk_result) {
+          if (job.chunk_result.finalFairValueUSD) {
+            parsedAnalysis.finalFairValueUSD = job.chunk_result.finalFairValueUSD;
+          }
+          if (job.chunk_result.priceAdjustment) {
+            parsedAnalysis.priceAdjustment = job.chunk_result.priceAdjustment;
+          }
+        } else if (job.job_type === "expert_advice" && job.chunk_result?.advice) {
+          parsedAnalysis.advice = job.chunk_result.advice;
+        }
+      }
     }
     
     // Get inspection details

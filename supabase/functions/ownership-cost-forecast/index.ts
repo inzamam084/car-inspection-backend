@@ -17,23 +17,24 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-// Fair Market Value Response Schema
-const FAIR_MARKET_VALUE_SCHEMA = {
+// Ownership Cost Forecast Response Schema
+const OWNERSHIP_COST_FORECAST_SCHEMA = {
   type: "object",
   properties: {
-    finalFairValueUSD: { 
-      type: "string",
-      description: "Final fair market value in USD format (e.g., '$15,000 - $18,000' or '$16,500')"
-    },
-    priceAdjustment: {
-      type: "object",
-      properties: {
-        baselineBand: { type: "string", enum: ["concours", "excellent", "good", "fair"] },
-        adjustmentUSD: { type: "integer" },
-        explanation: { type: "string" }
-      },
-      required: ["baselineBand", "adjustmentUSD", "explanation"],
-      additionalProperties: false
+    ownershipCostForecast: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          component: { type: "string" },
+          expectedIssue: { type: "string" },
+          estimatedCostUSD: { type: "integer" },
+          suggestedMileage: { type: "integer" },
+          explanation: { type: "string" }
+        },
+        required: ["component", "expectedIssue", "estimatedCostUSD", "suggestedMileage", "explanation"],
+        additionalProperties: false
+      }
     },
     web_search_results: {
       type: "array",
@@ -44,37 +45,51 @@ const FAIR_MARKET_VALUE_SCHEMA = {
       }
     }
   },
-  required: ["finalFairValueUSD", "priceAdjustment"],
+  required: ["ownershipCostForecast"],
   additionalProperties: false
 };
 
-// Fair Market Value Analysis Prompt
-const FAIR_MARKET_VALUE_PROMPT = `You are an expert automotive appraiser and market analyst. Your task is to determine the fair market value of a vehicle based on web search results and the vehicle's inspection condition.
+// Ownership Cost Forecast Analysis Prompt
+const OWNERSHIP_COST_FORECAST_PROMPT = `You are an expert automotive maintenance advisor and cost analyst. Your task is to predict future ownership costs based on web search results for model-specific maintenance data and the vehicle's current inspection condition.
 
 **ANALYSIS REQUIREMENTS**:
-1. **Market Data Collection**: Use web search results to establish baseline market values from multiple sources
-2. **Condition Assessment**: Apply condition-based adjustments based on the provided inspection results
-3. **Price Calculation**: Determine a specific dollar amount or range for finalFairValueUSD
-4. **Documentation**: Provide clear explanations for all adjustments and market analysis
+1. **Model-Specific Data Collection**: Use web search to gather maintenance schedules, common issues, and typical ownership costs for this specific vehicle
+2. **Condition Assessment**: Analyze current inspection findings to predict accelerated wear or upcoming issues
+3. **Cost Forecasting**: Predict maintenance and repair needs within the next ~20,000 miles based on current condition and mileage
+4. **Practical Guidance**: Provide actionable forecasts with specific mileage targets and cost estimates
 
 **VEHICLE DATA**: You will receive:
 - Vehicle details (Year, Make, Model, Mileage, Location)
 - Complete inspection results with condition scores and identified issues
-- Repair cost estimates from the inspection
+- Current repair cost estimates from the inspection
 
 **OUTPUT REQUIREMENTS**:
 - Return ONLY a JSON object following the schema
-- finalFairValueUSD must be a specific dollar amount or narrow range (e.g., "$15,000 - $18,000" or "$16,500")
-- DO NOT return "Market Data Not Available" unless all searches completely fail
-- Base adjustments on actual inspection findings and market data
-- Provide detailed explanations for price adjustments
-- MUST include web_search_results field with all search results you used in your analysis
+- ownershipCostForecast must be an array of upcoming maintenance/repair items
+- Each forecast item must include:
+  * component: specific part/system name
+  * expectedIssue: description of what will need attention
+  * estimatedCostUSD: realistic cost estimate based on current market prices
+  * suggestedMileage: when to expect or address this issue
+  * explanation: reasoning for this prediction based on current condition and model-specific data
+- Focus on items likely needed within next 20,000 miles
+- Base predictions on actual inspection findings combined with model-specific maintenance schedules
+- MUST include web_search_results field with all search results used in analysis
 
-**PRICING LOGIC**:
-1. Start with baseline market value from web searches
-2. Apply condition adjustments based on inspection scores and repair costs
-3. Consider regional market factors from location data
-4. Factor in any significant issues or advantages found in inspection
+**FORECASTING LOGIC**:
+1. Identify model-specific maintenance intervals from web search
+2. Cross-reference with current mileage to determine upcoming services
+3. Analyze inspection findings for accelerated wear patterns
+4. Predict component failures based on current condition scores
+5. Estimate realistic costs using current market data
+6. Prioritize by urgency and cost impact
+
+**SEARCH FOCUS AREAS**:
+- Official maintenance schedules for this specific year/make/model
+- Common problems and failure points reported by owners
+- Typical replacement intervals for wear items (brakes, tires, etc.)
+- Model-specific expensive repairs and their typical mileage occurrence
+- Current parts pricing and labor costs for this vehicle type
 
 Return only the JSON response with no additional text or markdown.`;
 
@@ -139,9 +154,9 @@ function parseAnalysisResponse(response: any) {
 }
 
 // Background processing function
-async function processFairMarketValueInBackground(jobId: string, inspectionId: string) {
+async function processOwnershipCostForecastInBackground(jobId: string, inspectionId: string) {
   try {
-    console.log(`Starting fair market value analysis for job ${jobId}`);
+    console.log(`Starting ownership cost forecast analysis for job ${jobId}`);
     
     // Get the job details
     const { data: job, error: jobError } = await supabase
@@ -155,20 +170,26 @@ async function processFairMarketValueInBackground(jobId: string, inspectionId: s
       return;
     }
     
-    // Get the previous job result (ownership cost forecast)
-    const { data: previousJob, error: previousJobError } = await supabase
+    // Get the final chunk analysis result
+    const { data: finalChunkJob, error: finalChunkError } = await supabase
       .from("processing_jobs")
       .select("chunk_result")
       .eq("inspection_id", inspectionId)
-      .eq("sequence_order", job.sequence_order - 1)
+      .eq("job_type", "chunk_analysis")
       .eq("status", "completed")
+      .order("sequence_order", { ascending: false })
+      .limit(1)
       .single();
     
-    if (previousJobError || !previousJob || !previousJob.chunk_result) {
-      throw new Error("No previous job result found for fair market value analysis");
+    if (finalChunkError || !finalChunkJob || !finalChunkJob.chunk_result) {
+      throw new Error("No final chunk result found for ownership cost forecast analysis");
     }
     
-    const inspectionResults = previousJob.chunk_result;
+    const inspectionResults = finalChunkJob.chunk_result;
+    
+    // Remove ownershipCostForecast from inspection results to avoid confusion
+    const cleanedInspectionResults = { ...inspectionResults };
+    delete cleanedInspectionResults.ownershipCostForecast;
     
     // Get inspection details
     const { data: inspection } = await supabase
@@ -185,29 +206,32 @@ async function processFairMarketValueInBackground(jobId: string, inspectionId: s
     const mileage = vehicle.Mileage || inspection?.mileage;
     const location = inspection?.zip || vehicle.Location;
     
-    // Build search terms
+    // Build search terms for model-specific maintenance data
     const searchTerms = [
-      `${year} ${make} ${model} ${mileage} market value KBB`,
-      `${year} ${make} ${model} for sale ${location} AutoTrader`,
-      `${year} ${make} ${model} Edmunds value pricing`,
-      `${year} ${make} ${model} ${mileage} miles Cars.com CarMax price`,
-      `${year} ${make} ${model} trade-in value NADA blue book pricing`
+      `${year} ${make} ${model} maintenance schedule service intervals official`,
+      `${year} ${make} ${model} common problems typical repairs owner forums`,
+      `${year} ${make} ${model} parts replacement cost brake pads timing belt`
     ];
     
     // Build analysis prompt with complete inspection data
-    const analysisPrompt = `${FAIR_MARKET_VALUE_PROMPT}
+    const analysisPrompt = `${OWNERSHIP_COST_FORECAST_PROMPT}
 
-**COMPLETE INSPECTION RESULTS**:
-${JSON.stringify(inspectionResults, null, 2)}
+**COMPLETE INSPECTION RESULTS** (excluding ownershipCostForecast):
+${JSON.stringify(cleanedInspectionResults, null, 2)}
+
+**VEHICLE DETAILS**:
+- Year: ${year}
+- Make: ${make}
+- Model: ${model}
+- Current Mileage: ${mileage}
+- Location: ${location}
 
 **SEARCH TERMS TO USE**:
 1. "${searchTerms[0]}"
 2. "${searchTerms[1]}"
 3. "${searchTerms[2]}"
-4. "${searchTerms[3]}"
-5. "${searchTerms[4]}"
 
-Perform the web searches and analyze the results to determine the fair market value.`;
+Perform the web searches and analyze the results to create an ownership cost forecast based on model-specific data and current inspection findings.`;
     
     // Call OpenAI API with web search
     const response = await openai.responses.create({
@@ -220,19 +244,19 @@ Perform the web searches and analyze the results to determine the fair market va
       temperature: 0.1,
       text: {
         format: {
-          name: "fair_market_value_analysis",
+          name: "ownership_cost_forecast_analysis",
           strict: true,
           type: "json_schema",
-          schema: FAIR_MARKET_VALUE_SCHEMA
+          schema: OWNERSHIP_COST_FORECAST_SCHEMA
         }
       }
     });
     
     // Parse response
-    const marketValueAnalysis = parseAnalysisResponse(response);
+    const ownershipCostAnalysis = parseAnalysisResponse(response);
     
-    if (marketValueAnalysis.error) {
-      throw new Error(`Fair market value analysis parsing failed: ${marketValueAnalysis.error}`);
+    if (ownershipCostAnalysis.error) {
+      throw new Error(`Ownership cost forecast analysis parsing failed: ${ownershipCostAnalysis.error}`);
     }
     
     // Calculate cost and extract web search results
@@ -240,11 +264,11 @@ Perform the web searches and analyze the results to determine the fair market va
     const searchResults = extractWebSearchResults(response);
     
     // Ensure web_search_results are included in the analysis result
-    if (!marketValueAnalysis.web_search_results) {
-      marketValueAnalysis.web_search_results = searchResults.webSearchResults;
+    if (!ownershipCostAnalysis.web_search_results) {
+      ownershipCostAnalysis.web_search_results = searchResults.webSearchResults;
     }
-    if (Array.isArray(marketValueAnalysis.web_search_results)) {
-      searchResults.webSearchCount = marketValueAnalysis.web_search_results.length;
+    if (Array.isArray(ownershipCostAnalysis.web_search_results)) {
+      searchResults.webSearchCount = ownershipCostAnalysis.web_search_results.length;
     }
     
     // Update job with results
@@ -252,24 +276,24 @@ Perform the web searches and analyze the results to determine the fair market va
       .from("processing_jobs")
       .update({
         status: "completed",
-        chunk_result: marketValueAnalysis,
+        chunk_result: ownershipCostAnalysis,
         cost: cost.totalCost,
         total_tokens: cost.totalTokens,
         web_search_count: searchResults.webSearchCount,
-        web_search_results: marketValueAnalysis.web_search_results,
+        web_search_results: ownershipCostAnalysis.web_search_results,
         completed_at: new Date().toISOString()
       })
       .eq("id", job.id);
     
     if (updateResult.error) {
-      console.error("Error updating fair market value job:", updateResult.error);
+      console.error("Error updating ownership cost forecast job:", updateResult.error);
       throw new Error(`Failed to update job: ${updateResult.error.message}`);
     }
     
-    console.log(`Successfully completed fair market value analysis for job ${job.id}`);
+    console.log(`Successfully completed ownership cost forecast analysis for job ${job.id}`);
     
   } catch (error) {
-    console.error(`Error processing fair market value job ${jobId}:`, error);
+    console.error(`Error processing ownership cost forecast job ${jobId}:`, error);
     
     // Update job status to failed
     await supabase
@@ -286,27 +310,27 @@ Perform the web searches and analyze the results to determine the fair market va
 // Main serve function
 serve(async (req) => {
   try {
-    console.log("Fair market value researcher request received");
+    console.log("Ownership cost forecast researcher request received");
     
     // Parse the request payload
     const payload = await req.json();
     const { inspection_id: inspectionId } = payload;
     
-    console.log(`Starting fair market value analysis for inspection ${inspectionId}`);
+    console.log(`Starting ownership cost forecast analysis for inspection ${inspectionId}`);
     
-    // Find the fair market value job for this inspection
+    // Find the ownership cost forecast job for this inspection
     const { data: job, error: jobError } = await supabase
       .from("processing_jobs")
       .select("*")
       .eq("inspection_id", inspectionId)
-      .eq("job_type", "fair_market_value")
+      .eq("job_type", "ownership_cost_forecast")
       .eq("status", "processing")
       .single();
     
     if (jobError || !job) {
-      console.error("Error fetching fair market value job:", jobError);
+      console.error("Error fetching ownership cost forecast job:", jobError);
       return new Response(JSON.stringify({
-        error: "No processing fair market value job found"
+        error: "No processing ownership cost forecast job found"
       }), {
         status: 404,
         headers: { "Content-Type": "application/json" }
@@ -318,18 +342,18 @@ serve(async (req) => {
     
     // Start background processing using EdgeRuntime.waitUntil
     if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
-      EdgeRuntime.waitUntil(processFairMarketValueInBackground(job.id, inspectionId));
+      EdgeRuntime.waitUntil(processOwnershipCostForecastInBackground(job.id, inspectionId));
     } else {
       // Fallback for environments without EdgeRuntime.waitUntil
-      processFairMarketValueInBackground(job.id, inspectionId).catch(error => {
-        console.error(`Background fair market value processing failed for job ${job.id}:`, error);
+      processOwnershipCostForecastInBackground(job.id, inspectionId).catch(error => {
+        console.error(`Background ownership cost forecast processing failed for job ${job.id}:`, error);
       });
     }
     
     // Return immediate response
     return new Response(JSON.stringify({
       success: true,
-      message: "Fair market value analysis started in background",
+      message: "Ownership cost forecast analysis started in background",
       jobId: job.id
     }), {
       status: 200,
@@ -337,7 +361,7 @@ serve(async (req) => {
     });
     
   } catch (error) {
-    console.error("Unexpected error in fair-market-value-researcher:", error);
+    console.error("Unexpected error in ownership-cost-forecast:", error);
     return new Response(JSON.stringify({
       error: "Internal server error"
     }), {

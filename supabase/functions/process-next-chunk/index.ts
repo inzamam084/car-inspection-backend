@@ -171,36 +171,10 @@ const VEHICLE_REPORT_SCHEMA = {
     },
     overallConditionScore: { type: "number", minimum: 1, maximum: 10 },
     overallComments: { type: "string" },
-    ownershipCostForecast: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          component: { type: "string" },
-          expectedIssue: { type: "string" },
-          estimatedCostUSD: { type: "integer" },
-          suggestedMileage: { type: "integer" },
-          explanation: { type: "string" }
-        },
-        required: ["component", "expectedIssue", "estimatedCostUSD", "suggestedMileage", "explanation"],
-        additionalProperties: false
-      }
-    },
-    priceAdjustment: {
-      type: "object",
-      properties: {
-        baselineBand: { type: "string", enum: ["concours", "excellent", "good", "fair"] },
-        adjustmentUSD: { type: "integer" },
-        explanation: { type: "string" }
-      },
-      required: ["baselineBand", "adjustmentUSD", "explanation"],
-      additionalProperties: false
-    },
   },
   required: [
     "vehicle", "exterior", "interior", "dashboard", "paint", "rust", "engine",
-    "undercarriage", "title", "records", "overallConditionScore", "overallComments",
-    "ownershipCostForecast", "priceAdjustment"
+    "undercarriage", "title", "records", "overallConditionScore", "overallComments"
   ],
   additionalProperties: false
 };
@@ -243,13 +217,6 @@ You are an expert automotive inspector AI with advanced image analysis capabilit
      - 'estimatedRepairCost': an estimated USD cost to fix the issues in that category (0 if no issues or not applicable).
      - 'incomplete': a boolean indicating if this category couldn't be fully assessed (e.g. missing/blurry images or data). Use 'true' if incomplete, otherwise 'false' or omit if fully assessed.
    - **Overall condition score:** an "overallConditionScore" (1-10) reflecting the vehicle's total condition. This should account for all categories and be penalized if some sections are incomplete or if major defects exist. (For example, a car with major frame damage might have overall 3/10 even if other areas are fine.) You may also include an "overallComments" or summary string if needed (optional) – but keep it brief and factual.
-   - **Ownership cost forecast:** an "ownershipCostForecast" key with an array of objects. Each object predicts a likely upcoming maintenance or repair within ~20,000 miles, including:
-     - 'component': name of the part/system (e.g. "brake pads", "timing belt", "battery", etc.).
-     - 'expectedIssue': short description of the issue (e.g. "wear to minimum thickness", "old and failing").
-     - 'estimatedCostUSD': approximate cost to address it in USD.
-     - 'costExplanation': Reason of cost, which part will cost how much. If estimatedCostUSD is single part's cost, don't mention it. Only mention multiple parts cost which should be the devision of total cost.
-     - 'suggestedMileage': the mileage at which to expect or address this issue.
-     - 'explanation': a brief sentence explaining why this issue will likely need attention (e.g. "Brake pads typically wear out by 60k miles; yours have ~5k miles left based on current wear. Replacing them will cost about $300.").
    - **No additional text outside the JSON.** Do not include any explanatory prose or lists besides the JSON structure. **Do NOT output markdown, just raw JSON.** No apologies or self-references. The JSON should be well-formed and parsable.
 6. **Edge Cases:** Handle uncertainties or missing info as follows:
    - **Always perform analysis and generate results** on whatever images are available, regardless of quantity or quality. Analyze what you can see and include findings in the problems array.
@@ -330,16 +297,7 @@ STRICT JSON OUTPUT (no comments)
 },
 "overallConditionScore": 0-10,
 "overallComments": "brief summary",
-"ownershipCostForecast": [
-{
-"component": "string",
-"expectedIssue": "string",
-"estimatedCostUSD": 0,
-"suggestedMileage": 0,
-"explanation": "string"
-}
-],
-"priceAdjustment": {…}
+
 }
 
 QUALITY CHECK
@@ -691,6 +649,28 @@ serve(async (req) => {
       return new Response(JSON.stringify({
         success: true,
         message: "Fair market value analysis started",
+        jobId: nextJob.id,
+        jobType: nextJob.job_type
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    } else if (nextJob.job_type === "ownership_cost_forecast") {
+      // Trigger ownership cost forecast researcher
+      const response = await fetch(`${supabaseUrl}/functions/v1/ownership-cost-forecast`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseServiceKey}`
+        },
+        body: JSON.stringify({
+          inspection_id: inspectionId
+        })
+      });
+      
+      return new Response(JSON.stringify({
+        success: true,
+        message: "Ownership cost forecast analysis started",
         jobId: nextJob.id,
         jobType: nextJob.job_type
       }), {
