@@ -288,6 +288,26 @@ deno_version = 1
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Edge Functions configuration
+# Declare all functions for automatic deployment with branching
+[functions.run-inspection]
+verify_jwt = false
+
+[functions.process-next-chunk]
+verify_jwt = false
+
+[functions.expert-advice-researcher]
+verify_jwt = false
+
+[functions.fair-market-value-researcher]
+verify_jwt = false
+
+[functions.generate-final-report]
+verify_jwt = false
+
+[functions.ownership-cost-forecast]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
