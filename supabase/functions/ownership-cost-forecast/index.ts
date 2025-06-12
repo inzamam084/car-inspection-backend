@@ -142,6 +142,7 @@ function extractWebSearchResults(response: any) {
 
 // Function to parse OpenAI response
 function parseAnalysisResponse(response: any) {
+  console.log("Parsing OpenAI response for ownership cost forecast analysis", response);
   try {
     const analysisResult = response.output_text || response.output && response.output[0] && response.output[0].content && response.output[0].content[0] && response.output[0].content[0].text || "{}";
     return JSON.parse(analysisResult);
@@ -206,13 +207,6 @@ async function processOwnershipCostForecastInBackground(jobId: string, inspectio
     const mileage = vehicle.Mileage || inspection?.mileage;
     const location = inspection?.zip || vehicle.Location;
     
-    // Build search terms for model-specific maintenance data
-    const searchTerms = [
-      `${year} ${make} ${model} maintenance schedule service intervals official`,
-      `${year} ${make} ${model} common problems typical repairs owner forums`,
-      `${year} ${make} ${model} parts replacement cost brake pads timing belt`
-    ];
-    
     // Build analysis prompt with complete inspection data
     const analysisPrompt = `${OWNERSHIP_COST_FORECAST_PROMPT}
 
@@ -226,12 +220,27 @@ ${JSON.stringify(cleanedInspectionResults, null, 2)}
 - Current Mileage: ${mileage}
 - Location: ${location}
 
-**SEARCH TERMS TO USE**:
-1. "${searchTerms[0]}"
-2. "${searchTerms[1]}"
-3. "${searchTerms[2]}"
+**DYNAMIC SEARCH STRATEGY**:
+You must perform exactly 5 web searches based on the inspection results above. Analyze the inspection findings first, then create targeted searches:
 
-Perform the web searches and analyze the results to create an ownership cost forecast based on model-specific data and current inspection findings.`;
+1. **General Maintenance Search**: "${year} ${make} ${model} maintenance schedule service intervals official"
+
+2. **Common Issues Search**: "${year} ${make} ${model} common problems typical repairs owner forums"
+
+3. **Component-Specific Search**: Based on inspection findings, search for the most critical components that need attention (e.g., if brakes are worn, search for brake-specific costs)
+
+4. **FCP Euro Pricing Search**: "site:fcpeuro.com ${year} ${make} ${model}" + specific parts identified from inspection results
+
+5. **ECS Tuning Pricing Search**: "site:ecstuning.com ${year} ${make} ${model}" + specific parts identified from inspection results
+
+**SEARCH INSTRUCTIONS**:
+- Analyze the inspection results to identify components with poor condition scores or immediate attention needed
+- Tailor searches 3, 4, and 5 to focus on the specific parts/systems that were flagged in the inspection or will likely need attention soon within next 20,000 miles
+- Use the inspection findings to determine which components are most likely to need replacement or repair within next 20,000 miles
+- Focus pricing searches on the actual parts that were identified as problematic in the inspection
+- If multiple systems need attention, prioritize by severity and cost impact
+
+Perform all 5 searches dynamically based on the inspection data, then analyze the results to create an ownership cost forecast.`;
     
     // Call OpenAI API with web search
     const response = await openai.responses.create({
