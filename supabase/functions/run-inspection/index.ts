@@ -115,8 +115,8 @@ const CATEGORY_PRIORITY = [
   'rust', 'engine', 'undercarriage', 'obd', 'title', 'records'
 ];
 
-// Maximum chunk size in bytes (15MB)
-const MAX_CHUNK_SIZE = 15 * 1024 * 1024;
+// Maximum chunk size in bytes (20MB)
+const MAX_CHUNK_SIZE = parseInt(Deno.env.get("MAX_CHUNK_SIZE") ?? "", 10) || 20 * 1024 * 1024;
 
 // Helper function to create category-based chunks within size limit
 async function createCategoryBasedChunks(photos: any[], obd2_codes: any[], titleImages: any[], maxSize: number, inspectionId: string) {
