@@ -54,7 +54,7 @@ const OWNERSHIP_COST_FORECAST_PROMPT = `You are an expert automotive maintenance
 
 **ANALYSIS REQUIREMENTS**:
 1. **Model-Specific Data Collection**: Use web search results to gather maintenance schedules, common issues, and typical ownership costs for this specific vehicle
-2. **Condition Assessment**: Analyze current inspection findings to predict accelerated wear or upcoming issues
+2. **Condition Assessment**: Analyze current inspection findings to predict accelerated wear or upcoming issues in the future
 3. **Cost Forecasting**: Predict maintenance and repair needs within the next ~20,000 miles based on current condition and mileage
 4. **Documentation**: Provide clear explanations for all forecasts and cost estimates
 
@@ -69,10 +69,11 @@ const OWNERSHIP_COST_FORECAST_PROMPT = `You are an expert automotive maintenance
 - Each forecast item must include:
   * component: specific part/system name
   * expectedIssue: description of what will need attention
-  * estimatedCostUSD: realistic cost estimate based on current market prices
+  * estimatedCostUSD: realistic cost estimate based on prices from search results and current market prices 
   * suggestedMileage: when to expect or address this issue
-  * explanation: reasoning for this prediction based on current condition and model-specific data
-- Focus on items likely needed within next 20,000 miles
+  * explanation: reasoning for this prediction based on current condition and model-specific data. also divide the total price into parts and labor costs to show each smallest pricing unit/factor in the explanation
+  * web_search_results: all search results used in the analysis
+- Focus on items likely needed within next 20,000 miles so give a futuristic ownership cost forecast
 - Base predictions on actual inspection findings combined with model-specific maintenance schedules
 - MUST include web_search_results field with all search results used in analysis
 
@@ -80,9 +81,10 @@ const OWNERSHIP_COST_FORECAST_PROMPT = `You are an expert automotive maintenance
 1. Identify model-specific maintenance intervals from web search results
 2. Cross-reference with current mileage to determine upcoming services
 3. Analyze inspection findings for accelerated wear patterns
-4. Predict component failures based on current condition scores
+4. Predict future component failures based on current condition scores
 5. Estimate realistic costs using current market data from search results
 6. Prioritize by urgency and cost impact
+7. No need to add cleaning or rust costs, just be specific to the vehicle's parts and systems
 
 Return only the JSON response with no additional text or markdown.`;
 

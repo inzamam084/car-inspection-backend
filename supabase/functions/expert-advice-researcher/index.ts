@@ -62,7 +62,10 @@ const EXPERT_ADVICE_PROMPT = `You are an expert automotive consultant and techni
   * Any recalls, TSBs (Technical Service Bulletins), or known defects
 - Synthesize expert information with inspection findings
 - web_search_results field should include all search results you used in your analysis but do not include them in the advice field
-- DO NOT INCLUDE WEB SITE LINK OR ANY OTHER REFERENCE IN THE advice FIELD.
+- DO NOT INCLUDE WEB SITE LINK OR ANY OTHER REFERENCES IN THE advice FIELD. For example here is an expert advice in which we are including reference to the source of information:
+**EXAMPLE EXPERT ADVICE WITH REFERENCES**:  
+  The 2002 Audi S4 is known for turbocharger failures, oil leaks, and ignition coil issues. ([carparts.com](https://www.carparts.com/blog/audi-s4-reliability-and-common-problems?utm_source=openai)) The inspection confirms oil seepage and aftermarket modifications. Address the title discrepancy promptly. Regular maintenance is crucial for reliability. Given the high mileage and identified issues, anticipate potential repair costs.
+- SO THE ABOVE EXAMPLE WOULD BE PERFECT IF WE DON'T INCLUDE THE REFERENCE TO THE SOURCE OF INFORMATION IN THE advice FIELD.
 
 **ADVICE SYNTHESIS LOGIC**:
 1. Identify model-specific issues from expert sources
