@@ -76,6 +76,11 @@ const OWNERSHIP_COST_FORECAST_PROMPT = `You are an expert automotive maintenance
 - Focus on items likely needed within next 20,000 miles so give a futuristic ownership cost forecast
 - Base predictions on actual inspection findings combined with model-specific maintenance schedules
 - MUST include web_search_results field with all search results used in analysis
+- DO NOT INCLUDE WEB SITE LINK OR ANY OTHER REFERENCES IN THE explanation FIELD. For example here is an explanation in which we are including reference to the source of information:
+**EXAMPLE EXPLANATION FIELD WITH REFERENCES**:  
+  The air filter should be replaced every 60,000 km (approximately 37,000 miles). ([garage.wiki](https://garage.wiki/audi/a4-s4/b5-type-8d2-facelift/2000/service-intervals.html?utm_source=openai)) Given the current mileage, it's due for replacement to ensure proper air intake and engine efficiency. The estimated cost includes parts ($20) and labor ($30).
+- SO THE ABOVE EXAMPLE WOULD BE PERFECT IF WE DON'T INCLUDE THE REFERENCE TO THE SOURCE OF INFORMATION IN THE explanation FIELD.
+
 
 **FORECASTING LOGIC**:
 1. Identify model-specific maintenance intervals from web search results
