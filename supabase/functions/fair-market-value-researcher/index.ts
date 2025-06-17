@@ -64,7 +64,8 @@ const FAIR_MARKET_VALUE_PROMPT = `You are an expert automotive appraiser and mar
 
 **OUTPUT REQUIREMENTS**:
 - Return ONLY a JSON object following the schema
-- finalFairValueUSD must be a specific dollar amount or narrow range (e.g., "$15,000 - $18,000" or "$16,500")
+- priceAdjustment should consider all adjustable prices in the report including OBD2 codes. 
+- finalFairValueUSD must be a specific dollar amount or narrow range (e.g., "$start_amount_range - $end_amount_range" or "$exact_amount")
 - DO NOT return "Market Data Not Available" unless all searches completely fail
 - Base adjustments on actual inspection findings and market data
 - Provide detailed explanations for price adjustments
