@@ -52,7 +52,8 @@ const VEHICLE_REPORT_SCHEMA = {
         score: { type: "number", minimum: 1, maximum: 10 },
         estimatedRepairCost: { type: "integer", minimum: 0 },
         costExplanation: { type: "string" },
-        incomplete: { type: "boolean" }
+        incomplete: { type: "boolean" },
+        incompletion_reason: { type: "string" }
       },
       required: ["problems", "score", "estimatedRepairCost", "costExplanation", "incomplete"],
       additionalProperties: false
@@ -64,7 +65,8 @@ const VEHICLE_REPORT_SCHEMA = {
         score: { type: "number", minimum: 1, maximum: 10 },
         estimatedRepairCost: { type: "integer", minimum: 0 },
         costExplanation: { type: "string" },
-        incomplete: { type: "boolean" }
+        incomplete: { type: "boolean" },
+        incompletion_reason: { type: "string" }
       },
       required: ["problems", "score", "estimatedRepairCost", "costExplanation", "incomplete"],
       additionalProperties: false
@@ -76,7 +78,8 @@ const VEHICLE_REPORT_SCHEMA = {
         score: { type: "number", minimum: 1, maximum: 10 },
         estimatedRepairCost: { type: "integer", minimum: 0 },
         costExplanation: { type: "string" },
-        incomplete: { type: "boolean" }
+        incomplete: { type: "boolean" },
+        incompletion_reason: { type: "string" }
       },
       required: ["problems", "score", "estimatedRepairCost", "costExplanation", "incomplete"],
       additionalProperties: false
@@ -88,7 +91,8 @@ const VEHICLE_REPORT_SCHEMA = {
         score: { type: "number", minimum: 1, maximum: 10 },
         estimatedRepairCost: { type: "integer", minimum: 0 },
         costExplanation: { type: "string" },
-        incomplete: { type: "boolean" }
+        incomplete: { type: "boolean" },
+        incompletion_reason: { type: "string" }
       },
       required: ["problems", "score", "estimatedRepairCost", "costExplanation", "incomplete"],
       additionalProperties: false
@@ -100,7 +104,8 @@ const VEHICLE_REPORT_SCHEMA = {
         score: { type: "number", minimum: 1, maximum: 10 },
         estimatedRepairCost: { type: "integer", minimum: 0 },
         costExplanation: { type: "string" },
-        incomplete: { type: "boolean" }
+        incomplete: { type: "boolean" },
+        incompletion_reason: { type: "string" }
       },
       required: ["problems", "score", "estimatedRepairCost", "costExplanation", "incomplete"],
       additionalProperties: false
@@ -112,7 +117,8 @@ const VEHICLE_REPORT_SCHEMA = {
         score: { type: "number", minimum: 1, maximum: 10 },
         estimatedRepairCost: { type: "integer", minimum: 0 },
         costExplanation: { type: "string" },
-        incomplete: { type: "boolean" }
+        incomplete: { type: "boolean" },
+        incompletion_reason: { type: "string" }
       },
       required: ["problems", "score", "estimatedRepairCost", "costExplanation", "incomplete"],
       additionalProperties: false
@@ -124,7 +130,8 @@ const VEHICLE_REPORT_SCHEMA = {
         score: { type: "number", minimum: 1, maximum: 10 },
         estimatedRepairCost: { type: "integer", minimum: 0 },
         costExplanation: { type: "string" },
-        incomplete: { type: "boolean" }
+        incomplete: { type: "boolean" },
+        incompletion_reason: { type: "string" }
       },
       required: ["problems", "score", "estimatedRepairCost", "costExplanation", "incomplete"],
       additionalProperties: false
@@ -139,7 +146,8 @@ const VEHICLE_REPORT_SCHEMA = {
             score: { type: "number", minimum: 1, maximum: 10 },
             estimatedRepairCost: { type: "integer", minimum: 0 },
             costExplanation: { type: "string" },
-            incomplete: { type: "boolean" }
+            incomplete: { type: "boolean" },
+            incompletion_reason: { type: "string" }
           },
           required: ["problems", "score", "estimatedRepairCost", "costExplanation", "incomplete"],
           additionalProperties: false
@@ -154,7 +162,8 @@ const VEHICLE_REPORT_SCHEMA = {
         score: { type: "number", minimum: 1, maximum: 10 },
         estimatedRepairCost: { type: "integer", minimum: 0 },
         costExplanation: { type: "string" },
-        incomplete: { type: "boolean" }
+        incomplete: { type: "boolean" },
+        incompletion_reason: { type: "string" }
       },
       required: ["problems", "score", "estimatedRepairCost", "costExplanation", "incomplete"],
       additionalProperties: false
@@ -164,7 +173,8 @@ const VEHICLE_REPORT_SCHEMA = {
       properties: {
         verifiedMaintenance: { type: "array", items: { type: "string" } },
         discrepancies: { type: "array", items: { type: "string" } },
-        incomplete: { type: "boolean" }
+        incomplete: { type: "boolean" },
+        incompletion_reason: { type: "string" }
       },
       required: ["verifiedMaintenance", "discrepancies", "incomplete"],
       additionalProperties: false
@@ -215,7 +225,8 @@ You are an expert automotive inspector AI with advanced image analysis capabilit
      - 'problems': an array of strings describing issues found. If none, use an empty array or an array with a "No issues found" note.
      - 'score': a numeric score (1-10 scale) for that category's condition (10 = excellent, 1 = poor). Score harshly: significant problems or unknowns should reduce the score.
      - 'estimatedRepairCost': an estimated USD cost to fix the issues in that category (0 if no issues or not applicable).
-     - 'incomplete': a boolean indicating if this category couldn't be fully assessed (e.g. missing/blurry images or data). Use 'true' if incomplete, otherwise 'false' or omit if fully assessed.
+     - 'incomplete': a boolean indicating if this category couldn't be fully assessed (e.g. missing/blurry images or data, or multiple conflicting vehicle data detected). Use 'true' if incomplete, otherwise 'false' or omit if fully assessed.
+     - 'incompletion_reason': a string explaining why this category is marked as incomplete. Required when 'incomplete' is true. Can include single reason or multiple reasons separated by semicolons when applicable. Common reasons include: "Missing images", "Blurry/unclear images", "Multiple vehicle data detected", "Insufficient data for analysis", "Image quality too poor for assessment", etc. Example: "Blurry/unclear images; Multiple vehicle images provided". Omit this field when 'incomplete' is false.
    - **Overall condition score:** an "overallConditionScore" (1-10) reflecting the vehicle's total condition. This should account for all categories and be penalized if some sections are incomplete or if major defects exist. (For example, a car with major frame damage might have overall 3/10 even if other areas are fine.) You may also include an "overallComments" or summary string if needed (optional) – but keep it brief and factual.
    - **No additional text outside the JSON.** Do not include any explanatory prose or lists besides the JSON structure. **Do NOT output markdown, just raw JSON.** No apologies or self-references. The JSON should be well-formed and parsable.
 6. **Edge Cases:** Handle uncertainties or missing info as follows:
@@ -223,12 +234,13 @@ You are an expert automotive inspector AI with advanced image analysis capabilit
    - Even if images are limited in quantity or quality, you will run the analysis on provided images and provide the inspection results.
    - One category can have images of other category as well so you need to analysis them all and re-categorize images yourself if alt labels are mis-assigned. For example: You will analysis all category images to inspect rust, even if they are labeled as exterior or interior or any other category.
    - With a few images (even just one), always set 'incomplete:false' and provide analysis based on available images.
-   - If OBD data is absent or unreadable, set the 'obd' section as incomplete or provide a note like "OBD scan data not available".
+   - If OBD data is absent or unreadable, set the 'obd' section as incomplete with 'incompletion_reason': "OBD scan data not available" or provide a note like "OBD scan data not available".
    - For obd2 codes, fetch all codes even if user provided codes image and use each obd2 code(e.i P0442) as key and its details inside the object as specified in the schema. Don't do OBD2 diagnoses if no OBD2 codes are provided.
    - If VIN cannot be verified from photos, include a note under 'title' (or 'exterior' if dash VIN plate image missing) that "Visual VIN verification incomplete".
    - If something expected is not found (e.g. history says accident but no damage visible), you can note that in the relevant section.
    - Always err on the side of transparency – do not guess information that isn't provided. If unsure, state so in the JSON (in a neutral manner).
-   - If multiple car images with conflicting data are provided, identify and highlight the discrepancies in the problems field of the relevant category. Focus analysis on the most relevant vehicle based on VIN or primary data provided in the DATA_BLOCK section. Do not attempt to merge unrelated vehicles into one report. For example, if a title image does not match the provided vehicle data, exclude that title image from analysis and document the conflict in the "problems" field with a clear note such as "Multiple vehicle images detected with conflicting data. Irrelevant images excluded from analysis to maintain report accuracy. Please provide images specific to the target vehicle for optimal results." Adapt this messaging to be contextually appropriate for the specific conflict encountered.
+   - When setting 'incomplete': true for any category, always provide a corresponding 'incompletion_reason' explaining why the assessment is incomplete.
+   - If multiple car images with conflicting data are provided, identify and highlight the discrepancies in the problems field of the relevant category. Focus analysis on the most relevant vehicle based on VIN or primary data provided in the DATA_BLOCK section. Do not attempt to merge unrelated vehicles into one report. When multiple vehicle data is detected, set 'incomplete': true for affected categories and provide 'incompletion_reason': "Multiple vehicle data detected" (or combine with other reasons using semicolons if applicable). Document the conflict in the "problems" field with a clear note such as "Multiple vehicle images detected with conflicting data. Irrelevant images excluded from analysis to maintain report accuracy. Please provide images specific to the target vehicle for optimal results." Adapt this messaging to be contextually appropriate for the specific conflict encountered.
 
 7. **Quality Control:** Output a single cohesive JSON object following the above format. Double-check that all keys are present and properly quoted, and that the JSON syntax is valid (no trailing commas, etc.). **Absolutely no additional commentary** – the response should be only the JSON data structure.
 Remember, you are generating a factual report for a customer based on the inspection. Be objective and detailed in the findings, and ensure the JSON structure strictly follows the requirements so it can be automatically processed.
@@ -272,7 +284,8 @@ STRICT JSON OUTPUT (no comments)
     "score": 0,
     "estimatedRepairCost": 0,
     "costExplanation": ["string of cost reasoning"],
-    "incomplete": false
+    "incomplete": false,
+    "incompletion_reason": "string explaining incompletion (only when incomplete is true)"
   },
 "interior": {…},
 "dashboard": {…},
@@ -286,7 +299,8 @@ STRICT JSON OUTPUT (no comments)
       "score": 0,
       "estimatedRepairCost": 0,
       "costExplanation": ["string of cost reasoning"],
-      "incomplete": false
+      "incomplete": false,
+      "incompletion_reason": "string explaining incompletion (only when incomplete is true)"
     },
     ...
   },
@@ -294,7 +308,8 @@ STRICT JSON OUTPUT (no comments)
 "records": {
 "verifiedMaintenance": ["item1","item2"],
 "discrepancies": ["item"],
-"incomplete": false
+"incomplete": false,
+"incompletion_reason": "string explaining incompletion (only when incomplete is true)"
 },
 "overallConditionScore": 0-10,
 "overallComments": "brief summary",
