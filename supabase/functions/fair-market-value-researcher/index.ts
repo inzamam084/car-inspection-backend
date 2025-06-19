@@ -71,18 +71,11 @@ const FAIR_MARKET_VALUE_PROMPT = `You are an expert automotive appraiser and mar
 - Provide detailed explanations for price adjustments
 - MUST include web_search_results field with all search results you used in your analysis
 
-1. **baselineBand**: high, low, median from each source.
-2. **explanation**: line‑item justification for each repair cost, OBD2 code, and condition score.
-3. **finalFairValueUSD**: a narrow dollar range or exact amount.
-4. **web_search_results**: raw URLs and extracted numbers for every search term used.
-
-
-PRICING LOGIC:
-- Compute per‑source high, low, median; drop outliers (±15% of cross‑site median).
-- Weight: Private party 50%, Dealer listings (KBB/Edmunds/Cars.com) 25%, Trade‑in 25%.
-- Subtract full repair costs & OBD2 estimates, cap total downward adjustment at 20%.
-- Condition score ≤3: –5%; ≥8: +3%.
-- If fewer than 3 numeric sources, fallback to NADA median.
+**PRICING LOGIC**:
+1. Start with baseline market value from web searches
+2. Apply condition adjustments based on inspection scores and repair costs
+3. Consider regional market factors from location data
+4. Factor in any significant issues or advantages found in inspection
 
 Return only the JSON response with no additional text or markdown.`;
 
