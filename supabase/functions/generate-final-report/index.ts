@@ -12,7 +12,7 @@ const APP_BASE_URL = Deno.env.get("APP_BASE_URL") || "https://ourfixmate.vercel.
 
 async function generatePdfReport(inspectionId: string) {
   try {
-    const nextJsApiUrl = `https://thefixmate.com/api/generate-pdf-report`; // Assuming APP_BASE_URL is set to the full Next.js URL
+    const nextJsApiUrl = `${APP_BASE_URL}/api/generate-pdf-report`;
 
     const response = await fetch(nextJsApiUrl, {
       method: "POST",
