@@ -49,35 +49,92 @@ const FAIR_MARKET_VALUE_SCHEMA = {
 };
 
 // Fair Market Value Analysis Prompt
-const FAIR_MARKET_VALUE_PROMPT = `You are an expert automotive appraiser and market analyst. Your task is to determine the fair market value of a vehicle based on web search results and the vehicle's inspection condition.
+const FAIR_MARKET_VALUE_PROMPT = `
+╭────────────────────────────────────────────────────────────╮
+│          ROLE & TASK                                      │
+╰────────────────────────────────────────────────────────────╯
+You are an **expert automotive appraiser and market analyst**.  
+Your mandate is to deliver a defensible *fair-market value* for a
+USED vehicle in **USD**—based on (a) structured pricing data from
+authoritative sources and (b) a detailed inspection report.
 
-**ANALYSIS REQUIREMENTS**:
-1. **Market Data Collection**: Use web search results to establish baseline market values from multiple sources
-2. **Condition Assessment**: Apply condition-based adjustments based on the provided inspection results
-3. **Price Calculation**: Determine a specific dollar amount or range for finalFairValueUSD
-4. **Documentation**: Provide clear explanations for all adjustments and market analysis
+╭────────────────────────────────────────────────────────────╮
+│          TOOLS & DATA SOURCES                             │
+╰────────────────────────────────────────────────────────────╯
+1. First attempt the following structured APIs if reachable  
+   • Edmunds TMV®, KBB Price Advisor, or NADA Values  
+   • If an API responds, treat it as the baseline and cite it.  
+2. If no API data or <3 valid comps return, perform web searches
+   with the search tool exactly as listed below.
 
-**VEHICLE DATA**: You will receive:
-- Vehicle details (Year, Make, Model, Mileage, Location)
-- Complete inspection results with condition scores and identified issues
-- Repair cost estimates from the inspection
 
-**OUTPUT REQUIREMENTS**:
-- Return ONLY a JSON object following the schema
-- priceAdjustment should consider all adjustable prices in the report including OBD2 codes. 
-- finalFairValueUSD must be a specific dollar amount or narrow range (e.g., "$start_amount_range - $end_amount_range" or "$exact_amount")
-- DO NOT return "Market Data Not Available" unless all searches completely fail
-- Base adjustments on actual inspection findings and market data
-- Provide detailed explanations for price adjustments
-- MUST include web_search_results field with all search results you used in your analysis
+For each result, extract only listings that
+• are priced in **USD** (string starts with “$”),  
+• match trim/engine/drive at ≥ 80 % spec similarity, and  
+• have mileage within ±20 % of {{mileage}}.
 
-**PRICING LOGIC**:
-1. Start with baseline market value from web searches
-2. Apply condition adjustments based on inspection scores and repair costs
-3. Consider regional market factors from location data
-4. Factor in any significant issues or advantages found in inspection
+╭────────────────────────────────────────────────────────────╮
+│          ANALYSIS STEPS                                    │
+╰────────────────────────────────────────────────────────────╯
+1. **Collect comps → baseline_price**  
+   • Build an array of listing objects '{priceUSD, mileage, trim, url}.  
+   • Discard outliers beyond 1.5 × IQR.  
+   • Require ≥ 3 comps after filtering or mark 'insufficientData = true'.  
+   • Use the **median** of remaining prices as 'baseline_price'.
+2. **Condition adjustment**  
+   • If inspection score < 8 / 10, cap baseline at KBB “Good” tier.  
+   • Apply ± $ based on inspection defects & OBD-II codes.  
+3. **Regional factor**  
+   • Adjust ± $ if local comps deviate > 5 % from national median.  
+4. **Repairs**  
+   • Subtract estimated repair costs directly.  
+5. **Currency / formatting**  
+   • Ensure all math done as numbers, then convert to USD string.  
+6. **Validation**  
+   • If |final – baseline| > $5 000, re-check math; if still true, \
+     set 'insufficientData = true'.
 
-Return only the JSON response with no additional text or markdown.`;
+╭────────────────────────────────────────────────────────────╮
+│          STRICT OUTPUT SCHEMA (JSON only)                  │
+╰────────────────────────────────────────────────────────────╯
+{
+  "insufficientData": <boolean>,          // true if <3 comps
+  "baselineComps": [                      // 3–12 objects
+    {
+      "priceUSD": <number>,               // numeric, no "$"
+      "mileage": <number>,
+      "trim": "<string>",
+      "url": "<string>"
+    }
+  ],
+  "priceAdjustments": {                   // dollar deltas
+    "condition": <number>,
+    "repairs": <number>,
+    "regional": <number>,
+    "other": "<string>"                   // brief narrative
+  },
+  "finalFairValueUSD": "<string>",        // "$25 500" or "$24 000-26 000"
+  "webSearchResults": [ "<string>", ... ] // raw snippets/links
+}
+
+╭────────────────────────────────────────────────────────────╮
+│          OUTPUT RULES                                     │
+╰────────────────────────────────────────────────────────────╯
+• **Return ONLY the JSON** that matches the schema—no markdown.  
+• Numeric fields must serialize as numbers, not strings.  
+• Never hallucinate listings; cite every URL you used.  
+• If \`insufficientData\` is true, leave other numeric fields null.
+
+╭────────────────────────────────────────────────────────────╮
+│          RUNTIME VARIABLES                                │
+╰────────────────────────────────────────────────────────────╯
+You will receive:
+• Vehicle specs → {year, make, model, trim, mileage, zip, location}  
+• Full inspection JSON, including scores and repair-cost estimates.
+
+Apply the analysis exactly as described—deterministically—and \
+produce the JSON response.
+`;
 
 // Function to calculate API cost
 function calculateApiCost(response: any) {
@@ -188,19 +245,27 @@ async function processFairMarketValueInBackground(jobId: string, inspectionId: s
     
     // Build search terms
     const searchTerms = [
+      `used ${year} ${make} ${model} ${mileage} mi \
+   ${location} price site:autotrader.com OR site:cars.com`,
       `${year} ${make} ${model} mileage ${mileage} sold price ${location}`,
-      `${year} ${make} ${model} certified pre owned ${location}`,
-      `${year} ${make} ${model} private sale mileage ${mileage}`,
-      `${year} ${make} ${model} auction sale results`,
-      `${year} ${make} ${model} trade in value NADA`
+      `used ${year} ${make} ${model} price ${location} \
+   site:kbb.com`,
+      `used ${year} ${make} ${model} trade-in value \
+   ${location} site:nadaguides.com`,
+      `used ${year} ${make} ${model} ${mileage} mi \
+   price ${location} site:edmunds.com`,
+      `used ${year} ${make} ${model} private party \
+   price ${location}`
     ];
+    
     // Build analysis prompt with complete inspection data
     const analysisPrompt = `${FAIR_MARKET_VALUE_PROMPT}
 
 **COMPLETE INSPECTION RESULTS**:
 ${JSON.stringify(inspectionResults, null, 2)}
 
-**SEARCH TERMS TO USE**:
+**SEARCH QUERIES (use in order) **
+Please perform web searches using the following queries to find comparable listings:
 1. "${searchTerms[0]}"
 2. "${searchTerms[1]}"
 3. "${searchTerms[2]}"
