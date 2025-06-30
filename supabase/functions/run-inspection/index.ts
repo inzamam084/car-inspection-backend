@@ -367,7 +367,7 @@ async function runAnalysisInBackground(inspectionId) {
 async function runScrapeThenAnalysis(inspection) {
   try {
     console.log(`Starting scrape for inspection ${inspection.id}`);
-    const scrapeRes = await fetch('https://v0-fix-mate-git-staging-infinione-projects.vercel.app/api/scrape-copart-images', {
+    const scrapeRes = await fetch(`${APP_BASE_URL}/api/scrape-copart-images`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
