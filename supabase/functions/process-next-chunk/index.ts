@@ -633,7 +633,7 @@ function extractWebSearchResults(response) {
   const webSearchResults = [];
   let webSearchCount = 0;
   if (response.output && Array.isArray(response.output)) {
-    for (const outputItem of response.output){
+    for (const outputItem of response.output) {
       if (outputItem.type === "web_search_call") {
         webSearchCount++;
         if (outputItem.results) {
@@ -717,7 +717,7 @@ async function processChunkInBackground(jobId, inspectionId) {
     }
     // Add OBD2 codes for first chunk only
     if (nextJob.sequence_order === 1) {
-      for (const obd2_code of obd2_codes){
+      for (const obd2_code of obd2_codes) {
         const code = obd2_code.code;
         const description = obd2_code.description;
         if (code) {
@@ -733,7 +733,7 @@ async function processChunkInBackground(jobId, inspectionId) {
     }
     // Process images from chunk_data
     const chunkImages = nextJob.chunk_data?.images || [];
-    for (const image of chunkImages){
+    for (const image of chunkImages) {
       const imagePath = image.converted_path || image.path;
       chunkImageContents.push({
         type: "input_text",
@@ -807,7 +807,7 @@ async function processChunkInBackground(jobId, inspectionId) {
   }
 }
 // Main serve function
-serve(async (req)=>{
+serve(async (req) => {
   try {
     console.log("Process next chunk request received");
     // Parse the request payload
@@ -855,7 +855,7 @@ serve(async (req)=>{
         EdgeRuntime.waitUntil(processChunkInBackground(nextJob.id, inspectionId));
       } else {
         // Fallback for environments without EdgeRuntime.waitUntil
-        processChunkInBackground(nextJob.id, inspectionId).catch((error)=>{
+        processChunkInBackground(nextJob.id, inspectionId).catch((error) => {
           console.error(`Background chunk processing failed for job ${nextJob.id}:`, error);
         });
       }
