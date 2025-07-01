@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { supabase } from "./config.ts";
 import { processExpertAdvice } from "./expert-advice-processor.ts";
+
 // Main serve function
 serve(async (req) => {
   try {

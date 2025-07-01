@@ -1,302 +1,27 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { OpenAI } from "https://esm.sh/openai@4.87.3";
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: Deno.env.get("OPENAI_API_KEY")
-});
-// Initialize Supabase client
-const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-// Fair Market Value Response Schema
-const FAIR_MARKET_VALUE_SCHEMA = {
-  type: "object",
-  properties: {
-    finalFairValueUSD: {
-      type: "string",
-      description: "Final fair market value in USD format (e.g., '$15,000 - $18,000' or '$16,500')"
-    },
-    priceAdjustment: {
-      type: "object",
-      properties: {
-        baselineBand: {
-          type: "string",
-          enum: [
-            "concours",
-            "excellent",
-            "good",
-            "fair"
-          ]
-        },
-        adjustmentUSD: {
-          type: "integer"
-        },
-        explanation: {
-          type: "string"
-        }
-      },
-      required: [
-        "baselineBand",
-        "adjustmentUSD",
-        "explanation"
-      ],
-      additionalProperties: false
-    },
-    web_search_results: {
-      type: "array",
-      description: "All web search results used in the analysis",
-      items: {
-        type: "object",
-        additionalProperties: false
-      }
-    }
-  },
-  required: [
-    "finalFairValueUSD",
-    "priceAdjustment"
-  ],
-  additionalProperties: false
-};
-// Fair Market Value Analysis Prompt
-const FAIR_MARKET_VALUE_PROMPT = `You are an expert automotive appraiser and market analyst. Your task is to determine the fair market value of a vehicle based on web search results and the vehicle's inspection condition.
+import { supabase } from "./config.ts";
+import { processFairMarketValue } from "./fair-market-value-processor.ts";
 
-**ANALYSIS REQUIREMENTS**:
-1. **Market Data Collection**: Use web search results to establish baseline market values from multiple sources
-2. **Condition Assessment**: Apply condition-based adjustments based on the provided inspection results
-3. **Price Calculation**: Determine a specific dollar amount or range for finalFairValueUSD
-4. **Documentation**: Provide clear explanations for all adjustments and market analysis
-
-**VEHICLE DATA**: You will receive:
-- Vehicle details (Year, Make, Model, Mileage, Location)
-- Complete inspection results with condition scores and identified issues
-- Repair cost estimates from the inspection
-
-**OUTPUT REQUIREMENTS**:
-- Return ONLY a JSON object following the schema
-- priceAdjustment should consider all adjustable prices in the report including OBD2 codes. 
-- finalFairValueUSD must be a specific dollar amount or narrow range (e.g., "$start_amount_range - $end_amount_range" or "$exact_amount")
-- DO NOT return "Market Data Not Available" unless all searches completely fail
-- Base adjustments on actual inspection findings and market data
-- Provide detailed explanations for price adjustments
-- MUST include web_search_results field with all search results you used in your analysis
-
-**PRICING LOGIC**:
-1. Start with baseline market value from web searches
-2. Apply condition adjustments based on inspection scores and repair costs
-3. Consider regional market factors from location data
-4. Factor in any significant issues or advantages found in inspection
-
-Return only the JSON response with no additional text or markdown.`;
-// Function to calculate API cost
-function calculateApiCost(response) {
-  const usage = response.usage || {};
-  const promptTokens = usage.input_tokens || 0;
-  const completionTokens = usage.output_tokens || 0;
-  const totalTokens = usage.total_tokens || promptTokens + completionTokens;
-  const GPT_4_1_RATES = {
-    promptTokenRate: 0.01 / 1000,
-    completionTokenRate: 0.03 / 1000
-  };
-  const promptCost = promptTokens * GPT_4_1_RATES.promptTokenRate;
-  const completionCost = completionTokens * GPT_4_1_RATES.completionTokenRate;
-  const totalCost = promptCost + completionCost;
-  return {
-    model: response.model || "gpt-4.1",
-    totalTokens,
-    totalCost: totalCost
-  };
-}
-// Function to extract web search results
-function extractWebSearchResults(response) {
-  const webSearchResults = [];
-  let webSearchCount = 0;
-  if (response.output && Array.isArray(response.output)) {
-    for (const outputItem of response.output){
-      if (outputItem.type === "web_search_call") {
-        webSearchCount++;
-        if (outputItem.results) {
-          webSearchResults.push({
-            searchId: outputItem.id,
-            status: outputItem.status,
-            results: outputItem.results,
-            timestamp: new Date().toISOString()
-          });
-        }
-      }
-    }
-  }
-  return {
-    webSearchResults,
-    webSearchCount
-  };
-}
-// Function to parse OpenAI response
-function parseAnalysisResponse(response) {
-  try {
-    const analysisResult = response.output_text || response.output && response.output[0] && response.output[0].content && response.output[0].content[0] && response.output[0].content[0].text || "{}";
-    return JSON.parse(analysisResult);
-  } catch (error) {
-    console.error("Error parsing OpenAI response:", error);
-    return {
-      error: "Failed to parse analysis result"
-    };
-  }
-}
-// Background processing function
-async function processFairMarketValueInBackground(jobId, inspectionId) {
-  try {
-    console.log(`Starting fair market value analysis for job ${jobId}`);
-    // Get the job details
-    const { data: job, error: jobError } = await supabase.from("processing_jobs").select("*").eq("id", jobId).single();
-    if (jobError || !job) {
-      console.error("Error fetching job:", jobError);
-      return;
-    }
-    // Get the previous job result (ownership cost forecast)
-    const { data: previousJob, error: previousJobError } = await supabase.from("processing_jobs").select("chunk_result").eq("inspection_id", inspectionId).eq("sequence_order", job.sequence_order - 1).eq("status", "completed").single();
-    if (previousJobError || !previousJob || !previousJob.chunk_result) {
-      throw new Error("No previous job result found for fair market value analysis");
-    }
-    const inspectionResults = previousJob.chunk_result;
-    console.log("inspections Results : ", inspectionResults);
-    console.log("Inspection Vehicle : ", inspectionResults.vehicle);
-    // Get the previous job result (ownership cost forecast)
-    // const { data: previous_Job } = await supabase.from("processing_jobs").select("chunk_result").eq("inspection_id", inspectionId).eq("job_type", "chunk_analysis").eq("status", "completed").single();
-    // // .eq("sequence_order", job.sequence_order - 1)
-    const { data: previous_Job } = await supabase.from("processing_jobs").select("chunk_result").eq("inspection_id", inspectionId).eq("job_type", "chunk_analysis").eq("status", "completed").order("sequence_order", {
-      ascending: false
-    }) // Order by sequence_order in descending order
-    .limit(1) // Limit to the most recent entry
-    .single(); // Ensure only one result is returned
-    const inspection_results = previous_Job.chunk_result;
-    // Get inspection details
-    const { data: inspection } = await supabase.from("inspections").select("vin, mileage, zip").eq("id", inspectionId).single();
-    // Extract vehicle information
-    const vehicle = inspection_results.vehicle || {};
-    const year = vehicle.Year;
-    const make = vehicle.Make;
-    const model = vehicle.Model;
-    const mileage = vehicle.Mileage || inspection?.mileage;
-    const location = inspection?.zip || vehicle.Location;
-    // Build search terms
-    const searchTerms = [
-      `${year} ${make} ${model} ${mileage} market value KBB`,
-      `${year} ${make} ${model} for sale ${location} AutoTrader`,
-      `${year} ${make} ${model} Edmunds value pricing`,
-      `${year} ${make} ${model} ${mileage} miles Cars.com CarMax price`,
-      `${year} ${make} ${model} trade-in value NADA blue book pricing`
-    ];
-    console.log(searchTerms);
-    // Build analysis prompt with complete inspection data
-    const analysisPrompt = `${FAIR_MARKET_VALUE_PROMPT}
-
-**COMPLETE INSPECTION RESULTS**:
-${JSON.stringify(inspectionResults, null, 2)}
-
-**SEARCH TERMS TO USE**:
-1. "${searchTerms[0]}"
-2. "${searchTerms[1]}"
-3. "${searchTerms[2]}"
-4. "${searchTerms[3]}"
-5. "${searchTerms[4]}"
-
-Perform the web searches and analyze the results to determine the fair market value.`;
-    // Call OpenAI API with web search
-    const response = await openai.responses.create({
-      model: "gpt-4.1",
-      tools: [
-        {
-          type: "web_search_preview",
-          search_context_size: "high"
-        }
-      ],
-      input: analysisPrompt,
-      temperature: 0.1,
-      text: {
-        format: {
-          name: "fair_market_value_analysis",
-          strict: true,
-          type: "json_schema",
-          schema: FAIR_MARKET_VALUE_SCHEMA
-        }
-      }
-    });
-    // Parse response
-    const marketValueAnalysis = parseAnalysisResponse(response);
-    // 1) Call your external valuation API
-    const valuationRes = await fetch("https://v0-fix-mate-git-staging-infinione-projects.vercel.app/api/vehicle-valuation", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        year,
-        make,
-        model,
-        mileage,
-        location
-      })
-    });
-    if (!valuationRes.ok) {
-      throw new Error(`Valuation API error: ${valuationRes.status} ${valuationRes.statusText}`);
-    }
-    const { fairMarketValue } = await valuationRes.json();
-    // 2) Build a “$low – $high” string
-    const low = fairMarketValue.low.toLocaleString();
-    const high = fairMarketValue.high.toLocaleString();
-    const finalRange = `$${low} - $${high}`;
-    // 3) Overwrite the OpenAI-derived field
-    marketValueAnalysis.finalFairValueUSD = finalRange;
-    marketValueAnalysis.finalFairAverageValueUSD = fairMarketValue.average.toLocaleString();
-    if (marketValueAnalysis.error) {
-      throw new Error(`Fair market value analysis parsing failed: ${marketValueAnalysis.error}`);
-    }
-    // Calculate cost and extract web search results
-    const cost = calculateApiCost(response);
-    const searchResults = extractWebSearchResults(response);
-    // Ensure web_search_results are included in the analysis result
-    if (!marketValueAnalysis.web_search_results) {
-      marketValueAnalysis.web_search_results = searchResults.webSearchResults;
-    }
-    if (Array.isArray(marketValueAnalysis.web_search_results)) {
-      searchResults.webSearchCount = marketValueAnalysis.web_search_results.length;
-    }
-    // Update job with results
-    const updateResult = await supabase.from("processing_jobs").update({
-      status: "completed",
-      chunk_result: marketValueAnalysis,
-      cost: cost.totalCost,
-      total_tokens: cost.totalTokens,
-      web_search_count: searchResults.webSearchCount,
-      web_search_results: marketValueAnalysis.web_search_results,
-      completed_at: new Date().toISOString()
-    }).eq("id", job.id);
-    if (updateResult.error) {
-      console.error("Error updating fair market value job:", updateResult.error);
-      throw new Error(`Failed to update job: ${updateResult.error.message}`);
-    }
-    console.log(`Successfully completed fair market value analysis for job ${job.id}`);
-  } catch (error) {
-    console.error(`Error processing fair market value job ${jobId}:`, error);
-    // Update job status to failed
-    await supabase.from("processing_jobs").update({
-      status: "failed",
-      error_message: error.message,
-      completed_at: new Date().toISOString()
-    }).eq("id", jobId);
-  }
-}
 // Main serve function
-serve(async (req)=>{
+serve(async (req) => {
   try {
     console.log("Fair market value researcher request received");
+
     // Parse the request payload
     const payload = await req.json();
     const { inspection_id: inspectionId } = payload;
+
     console.log(`Starting fair market value analysis for inspection ${inspectionId}`);
+
     // Find the fair market value job for this inspection
-    const { data: job, error: jobError } = await supabase.from("processing_jobs").select("*").eq("inspection_id", inspectionId).eq("job_type", "fair_market_value").eq("status", "processing").single();
+    const { data: job, error: jobError } = await supabase
+      .from("processing_jobs")
+      .select("*")
+      .eq("inspection_id", inspectionId)
+      .eq("job_type", "fair_market_value")
+      .eq("status", "processing")
+      .single();
+
     if (jobError || !job) {
       console.error("Error fetching fair market value job:", jobError);
       return new Response(JSON.stringify({
@@ -308,17 +33,20 @@ serve(async (req)=>{
         }
       });
     }
+
     // Job is already set to processing by process-next-chunk
     // No need to update status again
+
     // Start background processing using EdgeRuntime.waitUntil
     if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
-      EdgeRuntime.waitUntil(processFairMarketValueInBackground(job.id, inspectionId));
+      EdgeRuntime.waitUntil(processFairMarketValue(job.id, inspectionId));
     } else {
       // Fallback for environments without EdgeRuntime.waitUntil
-      processFairMarketValueInBackground(job.id, inspectionId).catch((error)=>{
+      processFairMarketValue(job.id, inspectionId).catch((error) => {
         console.error(`Background fair market value processing failed for job ${job.id}:`, error);
       });
     }
+
     // Return immediate response
     return new Response(JSON.stringify({
       success: true,
@@ -330,6 +58,7 @@ serve(async (req)=>{
         "Content-Type": "application/json"
       }
     });
+
   } catch (error) {
     console.error("Unexpected error in fair-market-value-researcher:", error);
     return new Response(JSON.stringify({
