@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { processFinalReport } from "./final-report-processor.ts";
 
+declare const EdgeRuntime: any;
+
 // Main serve function
 serve(async (req) => {
   try {

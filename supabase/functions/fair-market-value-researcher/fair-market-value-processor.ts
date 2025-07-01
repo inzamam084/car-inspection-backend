@@ -53,7 +53,7 @@ export async function processFairMarketValue(jobId: string, inspectionId: string
       .limit(1)
       .single();
 
-    const inspection_results = finalChunkJob.chunk_result;
+    const inspection_results = finalChunkJob?.chunk_result;
 
     // Get inspection details
     const { data: inspection } = await supabase
@@ -162,7 +162,7 @@ Perform the web searches and analyze the results to determine the fair market va
       .from("processing_jobs")
       .update({
         status: "failed",
-        error_message: error.message,
+        error_message:  error instanceof Error ? error.message : String(error),
         completed_at: new Date().toISOString()
       })
       .eq("id", jobId);
