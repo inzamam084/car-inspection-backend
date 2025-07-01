@@ -60,14 +60,6 @@ export interface ProcessingJob {
   status: 'pending' | 'processing' | 'completed' | 'failed';
 }
 
-export interface DataBlock {
-  vin: string;
-  mileage?: number | null;
-  zip?: string | null;
-  vinHistory: any;
-  marketPriceBands: any;
-}
-
 export interface WebhookPayload {
   inspection_id: string;
 }

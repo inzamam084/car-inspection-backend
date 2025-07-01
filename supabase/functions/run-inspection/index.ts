@@ -10,7 +10,6 @@ declare const EdgeRuntime: any;
 serve(async (req): Promise<Response> => {
   try {
     console.log("Request received..");
-    console.log("HELLO");
 
     // Parse the webhook payload
     const payload: WebhookPayload = await req.json();
