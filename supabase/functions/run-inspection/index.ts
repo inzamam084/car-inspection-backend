@@ -3,9 +3,6 @@ import { supabase } from "./config.ts";
 import { runAnalysisInBackground, runScrapeThenAnalysis } from "./run-inspection-processor.ts";
 import type { WebhookPayload, ApiResponse, ErrorResponse, Inspection } from "./schemas.ts";
 
-// Declare EdgeRuntime for type safety
-declare const EdgeRuntime: any;
-
 // Main serve function
 serve(async (req): Promise<Response> => {
   try {
