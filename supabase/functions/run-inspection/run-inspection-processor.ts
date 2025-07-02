@@ -66,12 +66,11 @@ export async function runAnalysisInBackground(
     await dbService.updateInspectionStatus(inspectionId, "creating_jobs");
 
     // Create chunks
-    const chunks = await createCategoryBasedChunks(
+    const chunks = createCategoryBasedChunks(
       photos,
       obd2_codes,
       titleImages,
       MAX_CHUNK_SIZE,
-      inspectionId,
     );
 
     console.log(`Created ${chunks.length} chunks for queue processing`);
@@ -183,7 +182,7 @@ export async function runScrapeThenAnalysis(
   try {
     console.log(`Starting scrape for inspection ${inspection.id}`);
 
-    const scrapeRes = await fetch(`${APP_BASE_URL}/api/scrape-copart-images`, {
+    const scrapeRes = await fetch(`${APP_BASE_URL}/api/scrape-vehicle-images`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
