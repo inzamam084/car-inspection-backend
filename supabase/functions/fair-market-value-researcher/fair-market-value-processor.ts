@@ -133,15 +133,15 @@ Perform the web searches and analyze the results to determine the fair market va
     const marketValueAnalysis = parseResponse(geminiResponse);
 
     // Get external valuation
-    const externalValuation = await getExternalValuation(year, make, model, mileage, location);
+    // const externalValuation = await getExternalValuation(year, make, model, mileage, location);
     
-    // Overwrite the Gemini-derived field with external API result
-    marketValueAnalysis.finalFairValueUSD = externalValuation.finalRange;
-    marketValueAnalysis.finalFairAverageValueUSD = externalValuation.average;
+    // // Overwrite the Gemini-derived field with external API result
+    // marketValueAnalysis.finalFairValueUSD = externalValuation.finalRange;
+    // marketValueAnalysis.finalFairAverageValueUSD = externalValuation.average;
 
-    if (marketValueAnalysis.error) {
-      throw new Error(`Fair market value analysis parsing failed: ${marketValueAnalysis.error}`);
-    }
+    // if (marketValueAnalysis.error) {
+    //   throw new Error(`Fair market value analysis parsing failed: ${marketValueAnalysis.error}`);
+    // }
 
     // Calculate cost and extract web search results
     const cost = calculateCost(geminiResponse);
