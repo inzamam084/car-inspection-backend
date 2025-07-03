@@ -18,7 +18,8 @@ fair-market-value-researcher/
 
 ### Environment Variables
 
-- `OPENAI_API_KEY` - Your OpenAI API key
+- `GEMINI_API_KEY` - Your Google Gemini API key
+- `GEMINI_MODEL` - Gemini model to use (default: gemini-2.0-flash-exp)
 - `SUPABASE_URL` - Supabase project URL
 - `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key
 
@@ -26,14 +27,15 @@ fair-market-value-researcher/
 
 ```bash
 # Set your API key
-OPENAI_API_KEY=your_openai_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.0-flash-exp
 ```
 
 ## Module Descriptions
 
 ### config.ts
 - Handles environment variable configuration
-- Initializes Supabase and OpenAI clients
+- Initializes Supabase and Gemini clients
 - Contains API configuration and rate settings for cost calculation
 
 ### schemas.ts
@@ -42,9 +44,9 @@ OPENAI_API_KEY=your_openai_api_key_here
 - Provides structured data definitions for API responses
 
 ### utils.ts
-- `calculateCost()` - Calculates OpenAI API usage costs
-- `extractSearchResults()` - Extracts web search results from OpenAI responses
-- `parseResponse()` - Parses and validates OpenAI API responses
+- `calculateCost()` - Calculates Gemini API usage costs
+- `extractSearchResults()` - Extracts web search results from Gemini responses
+- `parseResponse()` - Parses and validates Gemini API responses
 - `buildVehicleSearchTerms()` - Generates search terms for vehicle market analysis
 - `getExternalValuation()` - Calls external valuation API for market data
 
@@ -79,7 +81,7 @@ The function works the same way as before but now with better organization:
 
 ## Key Features
 
-- **OpenAI Integration** - Uses OpenAI GPT-4.1 with web search capabilities
+- **Gemini Integration** - Uses Google Gemini 2.0 Flash with web search capabilities
 - **External Valuation API** - Integrates with external vehicle valuation service
 - **Cost Tracking** - Tracks API usage costs and token consumption
 - **Web Search Results** - Captures and stores web search results for analysis

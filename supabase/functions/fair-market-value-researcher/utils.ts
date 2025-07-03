@@ -1,37 +1,39 @@
-import { openaiConfig } from "./config.ts";
+import { geminiConfig } from "./config.ts";
 
-// Function to calculate API cost
+// Function to calculate API cost for Gemini
 export function calculateCost(response: any) {
-  const usage = response.usage || {};
-  const promptTokens = usage.input_tokens || 0;
-  const completionTokens = usage.output_tokens || 0;
-  const totalTokens = usage.total_tokens || promptTokens + completionTokens;
+  const usage = response.usageMetadata || {};
+  const promptTokens = usage.promptTokenCount || 0;
+  const completionTokens = usage.candidatesTokenCount || 0;
+  const totalTokens = usage.totalTokenCount || promptTokens + completionTokens;
 
-  const promptCost = promptTokens * openaiConfig.rates.promptTokenRate;
-  const completionCost = completionTokens * openaiConfig.rates.completionTokenRate;
+  const promptCost = promptTokens * geminiConfig.rates.promptTokenRate;
+  const completionCost = completionTokens * geminiConfig.rates.completionTokenRate;
   const totalCost = promptCost + completionCost;
 
   return {
-    model: response.model || openaiConfig.model,
+    model: "gemini-2.0-flash-exp",
     totalTokens,
     totalCost: totalCost
   };
 }
 
-// Function to extract web search results
+// Function to extract web search results from Gemini response
 export function extractSearchResults(response: any) {
   const webSearchResults: any[] = [];
   let webSearchCount = 0;
 
-  if (response.output && Array.isArray(response.output)) {
-    for (const outputItem of response.output) {
-      if (outputItem.type === "web_search_call") {
-        webSearchCount++;
-        if (outputItem.results) {
+  // Gemini includes search results in the response differently
+  if (response.candidates && response.candidates[0] && response.candidates[0].content) {
+    const content = response.candidates[0].content;
+    if (content.parts) {
+      for (const part of content.parts) {
+        if (part.functionCall && part.functionCall.name === "google_search") {
+          webSearchCount++;
           webSearchResults.push({
-            searchId: outputItem.id,
-            status: outputItem.status,
-            results: outputItem.results,
+            searchId: `search_${webSearchCount}`,
+            status: "completed",
+            results: part.functionCall.args || {},
             timestamp: new Date().toISOString()
           });
         }
@@ -45,15 +47,22 @@ export function extractSearchResults(response: any) {
   };
 }
 
-// Function to parse OpenAI response
+// Function to parse Gemini response
 export function parseResponse(response: any) {
+  console.log("Parsing Gemini response for fair market value analysis", response);
   try {
-    const analysisResult = response.output_text || 
-      response.output && response.output[0] && response.output[0].content && 
-      response.output[0].content[0] && response.output[0].content[0].text || "{}";
-    return JSON.parse(analysisResult);
+    if (response.candidates && response.candidates[0] && response.candidates[0].content) {
+      const content = response.candidates[0].content;
+      if (content.parts && content.parts[0] && content.parts[0].text) {
+        const analysisResult = content.parts[0].text;
+        // Remove any markdown formatting if present
+        const cleanedResult = analysisResult.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        return JSON.parse(cleanedResult);
+      }
+    }
+    throw new Error("No valid content found in response");
   } catch (error) {
-    console.error("Error parsing OpenAI response:", error);
+    console.error("Error parsing Gemini response:", error);
     return {
       error: "Failed to parse analysis result"
     };
