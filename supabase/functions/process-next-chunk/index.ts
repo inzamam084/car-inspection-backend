@@ -55,6 +55,9 @@ const VEHICLE_REPORT_SCHEMA = {
         },
         "Interior Color": {
           type: "string"
+        },
+        Fuel:{
+          type: "string"
         }
       },
       required: [
@@ -70,7 +73,8 @@ const VEHICLE_REPORT_SCHEMA = {
         "Transmission",
         "Body Style",
         "Exterior Color",
-        "Interior Color"
+        "Interior Color",
+        "Fuel"
       ],
       additionalProperties: false
     },
@@ -565,7 +569,8 @@ STRICT JSON OUTPUT (no comments)
     "Transmission": ["string of vehicle transmission"],
     "Body Style": ["string of vehicle body style"],
     "Exterior Color": ["string of vehicle exterior color"],
-    "Interior Color": ["string of vehicle interior color"]    
+    "Interior Color": ["string of vehicle interior color"],
+    "Fuel": ["string of vehicle fuel"]
 },
 "exterior": {
     "problems": ["string array of issues found"],
