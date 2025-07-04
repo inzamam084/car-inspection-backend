@@ -1335,18 +1335,28 @@ async function batchUploadSupabaseImagesRest(
 
     const batchPromises = batch.map(async (image) => {
       try {
-        // Get public URL from Supabase Storage
-        const { data: publicUrlData } = supabase.storage
-          .from("inspection-photos")
-          .getPublicUrl(image.converted_path || image.path);
+        let imageUrl: string;
+        
+        // Check if the path is already a full URL
+        const imagePath = image.converted_path || image.path;
+        if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+          // Path is already a full URL, use it directly
+          imageUrl = imagePath;
+        } else {
+          // Path is relative, get public URL from Supabase Storage
+          const { data: publicUrlData } = supabase.storage
+            .from("inspection-photos")
+            .getPublicUrl(imagePath);
 
-        if (!publicUrlData?.publicUrl) {
-          console.error(`Failed to get public URL for ${image.path}`);
-          return null;
+          if (!publicUrlData?.publicUrl) {
+            console.error(`Failed to get public URL for ${imagePath}`);
+            return null;
+          }
+          imageUrl = publicUrlData.publicUrl;
         }
 
         return await uploadImageToGeminiRest(
-          publicUrlData.publicUrl,
+          imageUrl,
           image.category,
           image.id.toString(),
         );
