@@ -1563,6 +1563,8 @@ async function processGeminiAnalysisRest(
       `)
       .eq("id", inspectionId)
       .single();
+    
+    console.log("INSPECTION DATA : ", inspectionData)
 
     if (inspectionError || !inspectionData) {
       throw new Error("Failed to fetch inspection data");
