@@ -1557,7 +1557,7 @@ async function processGeminiAnalysisRest(
       .from("inspections")
       .select(`
         id, vin, mileage, zip,
-        photos:inspection_photos(*),
+        photos(*),
         obd2_codes:obd2_codes(*),
         title_images:title_images(*)
       `)
