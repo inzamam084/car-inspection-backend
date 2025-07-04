@@ -1259,40 +1259,6 @@ interface GeminiUsage {
   totalTokenCount?: number;
 }
 
-// Retry utility function
-async function withRetry<T>(
-  operation: () => Promise<T>,
-  maxRetries: number = 3,
-  baseDelay: number = 1000,
-): Promise<T> {
-  let lastError: Error = new Error("Operation failed");
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error as Error;
-
-      // Don't retry on certain errors
-      if (error instanceof Error) {
-        if (error.message.includes("400") || error.message.includes("401")) {
-          throw error; // Don't retry client errors
-        }
-      }
-
-      if (attempt === maxRetries) {
-        break; // Last attempt failed
-      }
-
-      // Exponential backoff
-      const delay = baseDelay * Math.pow(2, attempt);
-      console.log(`Attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-  }
-
-  throw lastError;
-}
 
 // Upload single image to Gemini Files API
 async function uploadImageToGeminiRest(
@@ -1679,12 +1645,8 @@ async function processGeminiAnalysisRest(
       uploadedFiles,
     );
 
-    // Call Gemini API with retry logic
-    const { result: analysisResult, usage } = await withRetry(
-      () => callGeminiAnalysisRest(contents, VEHICLE_REPORT_SCHEMA),
-      3,
-      2000,
-    );
+    // Call Gemini API directly
+    const { result: analysisResult, usage } = await callGeminiAnalysisRest(contents, VEHICLE_REPORT_SCHEMA);
 
     // Calculate cost
     const cost = calculateGeminiCostRest(usage);
