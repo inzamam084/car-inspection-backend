@@ -344,44 +344,93 @@ const VEHICLE_REPORT_SCHEMA = {
     },
     "obd": {
       "type": "OBJECT",
-      "properties": {},
-      "additionalProperties": {
-        "type": "OBJECT",
-        "properties": {
-          "problems": {
-            "type": "ARRAY",
-            "items": {
+      "properties": {
+        "codes": {
+          "type": "ARRAY",
+          "items": {
+            "type": "OBJECT",
+            "properties": {
+              "code": {
+                "type": "STRING",
+              },
+              "problems": {
+                "type": "ARRAY",
+                "items": {
+                  "type": "STRING",
+                },
+              },
+              "score": {
+                "type": "NUMBER",
+                "minimum": 1,
+                "maximum": 10,
+              },
+              "estimatedRepairCost": {
+                "type": "INTEGER",
+                "minimum": 0,
+              },
+              "costExplanation": {
+                "type": "STRING",
+              },
+              "incomplete": {
+                "type": "BOOLEAN",
+              },
+              "incompletion_reason": {
+                "type": "STRING",
+              },
+            },
+            "required": [
+              "code",
+              "problems",
+              "score",
+              "estimatedRepairCost",
+              "costExplanation",
+              "incomplete",
+              "incompletion_reason",
+            ],
+          },
+        },
+        "overall": {
+          "type": "OBJECT",
+          "properties": {
+            "problems": {
+              "type": "ARRAY",
+              "items": {
+                "type": "STRING",
+              },
+            },
+            "score": {
+              "type": "NUMBER",
+              "minimum": 1,
+              "maximum": 10,
+            },
+            "estimatedRepairCost": {
+              "type": "INTEGER",
+              "minimum": 0,
+            },
+            "costExplanation": {
+              "type": "STRING",
+            },
+            "incomplete": {
+              "type": "BOOLEAN",
+            },
+            "incompletion_reason": {
               "type": "STRING",
             },
           },
-          "score": {
-            "type": "NUMBER",
-            "minimum": 1,
-            "maximum": 10,
-          },
-          "estimatedRepairCost": {
-            "type": "INTEGER",
-            "minimum": 0,
-          },
-          "costExplanation": {
-            "type": "STRING",
-          },
-          "incomplete": {
-            "type": "BOOLEAN",
-          },
-          "incompletion_reason": {
-            "type": "STRING",
-          },
+          "required": [
+            "problems",
+            "score",
+            "estimatedRepairCost",
+            "costExplanation",
+            "incomplete",
+            "incompletion_reason",
+          ],
         },
-        "required": [
-          "problems",
-          "score",
-          "estimatedRepairCost",
-          "costExplanation",
-          "incomplete",
-          "incompletion_reason",
-        ],
       },
+      "required": [
+        "codes",
+        "overall",
+      ],
     },
     "title": {
       "type": "OBJECT",
