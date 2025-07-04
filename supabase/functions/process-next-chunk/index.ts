@@ -1565,6 +1565,7 @@ async function processGeminiAnalysisRest(
       .single();
     
     console.log("INSPECTION DATA : ", inspectionData)
+    console.log("INSPECTION ERROR : ", inspectionError)
 
     if (inspectionError || !inspectionData) {
       throw new Error("Failed to fetch inspection data");
