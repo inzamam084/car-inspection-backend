@@ -1623,6 +1623,8 @@ async function processGeminiAnalysisRest(
     // Upload all images to Gemini Files API
     uploadedFiles = await batchUploadSupabaseImagesRest(allImages, 3);
 
+    console.log("UPLOADED FILES : ", uploadedFiles)
+
     if (uploadedFiles.length === 0) {
       throw new Error("No images were successfully uploaded to Gemini");
     }
