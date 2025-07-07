@@ -1,7 +1,6 @@
-import { APP_BASE_URL, MAX_CHUNK_SIZE, SUPABASE_CONFIG } from "./config.ts";
-import { createCategoryBasedChunks } from "./utils.ts";
+import { APP_BASE_URL, SUPABASE_CONFIG } from "./config.ts";
 import { createDatabaseService } from "../shared/database-service.ts";
-import type { Inspection, ProcessingJob } from "./schemas.ts";
+import type { Inspection, ProcessingJob, ChunkImage } from "./schemas.ts";
 
 // Initialize optimized database service
 const dbService = createDatabaseService();
@@ -40,7 +39,7 @@ export async function runAnalysisInBackground(
     // Update status to analyzing
     await dbService.updateInspectionStatus(inspectionId, "analyzing");
 
-    // Check if images need chunking based on total size
+    // Calculate total image size for logging
     const photosSize = photos.reduce(
       (sum, photo) => sum + (parseInt(photo.storage) || 0),
       0,
@@ -59,46 +58,63 @@ export async function runAnalysisInBackground(
       `Total image size: ${(totalImageSize / (1024 * 1024)).toFixed(2)} MB`,
     );
 
-    // Use queue-based processing for large inspections
-    console.log("Processing inspection using queue-based system");
+    // Use simplified queue-based processing with single analysis job
+    console.log("Processing inspection using simplified queue-based system");
 
     // Update status to creating_jobs
     await dbService.updateInspectionStatus(inspectionId, "creating_jobs");
 
-    // Create chunks
-    const chunks = createCategoryBasedChunks(
-      photos,
-      obd2_codes,
-      titleImages,
-      MAX_CHUNK_SIZE,
-    );
-
-    console.log(`Created ${chunks.length} chunks for queue processing`);
-
-    // Create processing jobs for each chunk
+    // Create processing jobs - single analysis job followed by other jobs
     const jobs: ProcessingJob[] = [];
 
-    for (let i = 0; i < chunks.length; i++) {
-      jobs.push({
-        inspection_id: inspectionId,
-        job_type: "chunk_analysis",
-        sequence_order: i + 1,
-        chunk_index: i + 1,
-        total_chunks: chunks.length,
-        chunk_data: {
-          images: chunks[i].images,
-        },
-        status: "pending",
-      });
-    }
+    // Transform all images to ChunkImage format
+    const allImages: ChunkImage[] = [
+      // Transform photos
+      ...photos.map(photo => ({
+        id: photo.id,
+        path: photo.converted_path || photo.path,
+        category: photo.category,
+        storage: parseInt(photo.storage) || 0,
+        type: 'photo' as const,
+      })),
+      // Transform OBD2 codes with images
+      ...obd2_codes.filter(obd => obd.screenshot_path).map(obd => ({
+        id: obd.id,
+        path: obd.converted_path || obd.screenshot_path!,
+        category: 'obd',
+        storage: parseInt(obd.storage) || 0,
+        type: 'obd2_image' as const,
+        code: obd.code,
+        description: obd.description,
+      })),
+      // Transform title images
+      ...titleImages.map(title => ({
+        id: title.id,
+        path: title.converted_path || title.path,
+        category: 'title',
+        storage: parseInt(title.storage) || 0,
+        type: 'title_image' as const,
+      })),
+    ];
 
-    // Add ownership cost forecast, fair market value and expert advice jobs after chunk analysis
-    const nextSequence = chunks.length + 1;
+    // Single analysis job that processes all images
+    jobs.push({
+      inspection_id: inspectionId,
+      job_type: "chunk_analysis",
+      sequence_order: 1,
+      chunk_index: 1,
+      total_chunks: 1,
+      chunk_data: {
+        images: allImages,
+      },
+      status: "pending",
+    });
 
+    // Add ownership cost forecast, fair market value and expert advice jobs after analysis
     jobs.push({
       inspection_id: inspectionId,
       job_type: "ownership_cost_forecast",
-      sequence_order: nextSequence,
+      sequence_order: 2,
       chunk_index: 1,
       total_chunks: 1,
       chunk_data: {},
@@ -108,7 +124,7 @@ export async function runAnalysisInBackground(
     jobs.push({
       inspection_id: inspectionId,
       job_type: "fair_market_value",
-      sequence_order: nextSequence + 1,
+      sequence_order: 3,
       chunk_index: 1,
       total_chunks: 1,
       chunk_data: {},
@@ -118,7 +134,7 @@ export async function runAnalysisInBackground(
     jobs.push({
       inspection_id: inspectionId,
       job_type: "expert_advice",
-      sequence_order: nextSequence + 2,
+      sequence_order: 4,
       chunk_index: 1,
       total_chunks: 1,
       chunk_data: {},
