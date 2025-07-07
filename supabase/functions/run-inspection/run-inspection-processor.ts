@@ -190,7 +190,6 @@ export async function runAnalysisInBackground(
     await dbService.updateInspectionStatus(inspectionId, "failed");
   }
 }
-
 // Helper that chains scrape → analysis
 export async function runScrapeThenAnalysis(
   inspection: Inspection,
