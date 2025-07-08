@@ -1,4 +1,4 @@
-import { supabase, openai } from "./config.ts";
+import { supabase, geminiConfig } from "./config.ts";
 import { FAIR_MARKET_VALUE_PROMPT, FAIR_MARKET_VALUE_SCHEMA } from "./schemas.ts";
 import {
   calculateCost,
@@ -74,8 +74,12 @@ export async function processFairMarketValue(jobId: string, inspectionId: string
     const searchTerms = buildVehicleSearchTerms(year, make, model, mileage, location);
     console.log(searchTerms);
 
-    // Build analysis prompt with complete inspection data
+    // Build analysis prompt with complete inspection data and schema
     const analysisPrompt = `${FAIR_MARKET_VALUE_PROMPT}
+
+**REQUIRED JSON SCHEMA**:
+You must return a JSON object that exactly matches this schema:
+${JSON.stringify(FAIR_MARKET_VALUE_SCHEMA, null, 2)}
 
 **COMPLETE INSPECTION RESULTS**:
 ${JSON.stringify(inspectionResults, null, 2)}
@@ -83,36 +87,55 @@ ${JSON.stringify(inspectionResults, null, 2)}
 **SEARCH TERMS TO USE**:
 ${searchTerms.map((term, index) => `${index + 1}. "${term}"`).join('\n')}
 
-Perform the web searches and analyze the results to determine the fair market value.`;
+Perform the web searches and analyze the results to determine the fair market value. Return ONLY the JSON object matching the schema above, with no additional text or markdown formatting.`;
 
-    // Call OpenAI API with web search
-    const response = await openai.responses.create({
-      model: "gpt-4.1",
-      tools: [
+    // Call Gemini API with web search
+    const requestBody = {
+      contents: [
         {
-          type: "web_search_preview",
-          search_context_size: "high"
+          parts: [
+            {
+              text: analysisPrompt
+            }
+          ]
         }
       ],
-      input: analysisPrompt,
-      temperature: 0.1,
-      text: {
-        format: {
-          name: "fair_market_value_analysis",
-          strict: true,
-          type: "json_schema",
-          schema: FAIR_MARKET_VALUE_SCHEMA
+      tools: [
+        {
+          google_search: {}
         }
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        topK: 40,
+        topP: 0.95
       }
+    };
+
+    console.log("Sending request to Gemini API:", JSON.stringify(requestBody, null, 2));
+
+    const response = await fetch(geminiConfig.endpoint, {
+      method: "POST",
+      headers: geminiConfig.headers,
+      body: JSON.stringify(requestBody)
     });
 
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Gemini API error response:", errorText);
+      throw new Error(`Gemini API error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const geminiResponse = await response.json();
+    console.log("Gemini API response:", JSON.stringify(geminiResponse, null, 2));
+
     // Parse response
-    const marketValueAnalysis = parseResponse(response);
+    const marketValueAnalysis = parseResponse(geminiResponse);
 
     // Get external valuation
     const externalValuation = await getExternalValuation(year, make, model, mileage, location);
     
-    // Overwrite the OpenAI-derived field with external API result
+    // Overwrite the Gemini-derived field with external API result
     marketValueAnalysis.finalFairValueUSD = externalValuation.finalRange;
     marketValueAnalysis.finalFairAverageValueUSD = externalValuation.average;
 
@@ -121,8 +144,8 @@ Perform the web searches and analyze the results to determine the fair market va
     }
 
     // Calculate cost and extract web search results
-    const cost = calculateCost(response);
-    const searchResults = extractSearchResults(response);
+    const cost = calculateCost(geminiResponse);
+    const searchResults = extractSearchResults(geminiResponse);
 
     // Ensure web_search_results are included in the analysis result
     if (!marketValueAnalysis.web_search_results) {
