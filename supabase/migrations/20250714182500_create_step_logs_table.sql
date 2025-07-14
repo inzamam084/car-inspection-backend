@@ -2,24 +2,10 @@
 CREATE TABLE IF NOT EXISTS "public"."step_logs" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "inspection_id" "uuid" NOT NULL,
-    "job_id" "uuid", -- Optional reference to processing_jobs table
     "step_name" "text" NOT NULL, -- e.g., 'image_analysis', 'market_research', 'expert_advice', 'cost_forecast'
     "step_type" "text" NOT NULL CHECK (step_type IN ('start', 'progress', 'success', 'error', 'warning', 'info')),
-    "sequence_order" integer NOT NULL DEFAULT 0, -- Order within the inspection process
-    "sub_step_order" integer DEFAULT 0, -- Order within a specific step (for multiple logs per step)
     "message" "text", -- Human-readable log message
-    "details" "jsonb", -- Dynamic JSON data specific to each step
-    "metadata" "jsonb", -- Additional metadata (timing, tokens used, costs, etc.)
-    "error_code" "text", -- Standardized error codes if applicable
-    "duration_ms" integer, -- Step execution time in milliseconds
-    "tokens_used" integer, -- AI tokens consumed (if applicable)
-    "cost_usd" decimal(10,6), -- Cost in USD (if applicable)
-    "model_used" "text", -- AI model used (if applicable)
-    "retry_count" integer DEFAULT 0, -- Number of retries for this step
-    "parent_log_id" "uuid", -- Reference to parent log for hierarchical logging
-    "tags" "text"[], -- Array of tags for categorization and filtering
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"()
+    "details" "jsonb" -- Dynamic JSON data specific to each step
 );
 
 -- -- Set table owner
