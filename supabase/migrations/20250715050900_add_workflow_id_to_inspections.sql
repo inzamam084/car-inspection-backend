@@ -2,7 +2,7 @@
 -- This column can be null and will store workflow identifiers
 
 ALTER TABLE public.inspections 
-ADD COLUMN workflow_id text NULL;
+ADD COLUMN workflow_id TEXT;
 
 -- Add comment to document the column purpose
 COMMENT ON COLUMN public.inspections.workflow_id IS 'Optional workflow identifier for tracking inspection workflows';
