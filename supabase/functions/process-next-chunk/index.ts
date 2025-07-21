@@ -257,19 +257,27 @@ async function sendToDifyAPI(
     if (difyResponse.body) {
       const reader = difyResponse.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = '';
 
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+          // Accumulate chunks in buffer to handle partial JSON
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          
+          // Keep the last incomplete line in buffer
+          buffer = lines.pop() || '';
 
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               try {
-                const data = JSON.parse(line.slice(6));
+                const jsonStr = line.slice(6).trim();
+                if (!jsonStr) continue;
+                
+                const data = JSON.parse(jsonStr);
                 
                 // Handle different event types with detailed logging
                 switch (data.event) {
@@ -340,7 +348,6 @@ async function sendToDifyAPI(
                     const { error: updateError } = await supabase
                       .from("inspections")
                       .update({
-                        updated_at: new Date().toISOString(),
                         workflow_run_id: data.workflow_run_id,
                       })
                       .eq("id", inspectionId);
