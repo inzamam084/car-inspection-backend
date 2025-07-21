@@ -1328,11 +1328,11 @@ async function processGeminiAnalysisRest(inspectionId: string): Promise<void> {
     throw new Error(`Failed to process Gemini analysis: ${error.message}`);
   } finally {
     // Always cleanup uploaded files
-    if (uploadedFiles.length > 0) {
-      const fileUris = uploadedFiles.map((f) => f.uri);
-      await cleanupGeminiFilesRest(fileUris);
-      console.log(`Cleaned up ${fileUris.length} uploaded files from Gemini`);
-    }
+    // if (uploadedFiles.length > 0) {
+    //   const fileUris = uploadedFiles.map((f) => f.uri);
+    //   await cleanupGeminiFilesRest(fileUris);
+    //   console.log(`Cleaned up ${fileUris.length} uploaded files from Gemini`);
+    // }
   }
 }
 // Main serve function
