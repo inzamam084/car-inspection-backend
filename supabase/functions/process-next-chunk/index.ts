@@ -17,56 +17,56 @@ const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const VEHICLE_REPORT_SCHEMA = {
-  "type": "OBJECT",
-  "properties": {
-    "vehicle": {
-      "type": "OBJECT",
-      "properties": {
-        "Make": {
-          "type": "STRING",
+  type: "OBJECT",
+  properties: {
+    vehicle: {
+      type: "OBJECT",
+      properties: {
+        Make: {
+          type: "STRING",
         },
-        "Model": {
-          "type": "STRING",
+        Model: {
+          type: "STRING",
         },
-        "Year": {
-          "type": "INTEGER",
+        Year: {
+          type: "INTEGER",
         },
-        "Engine": {
-          "type": "STRING",
+        Engine: {
+          type: "STRING",
         },
-        "Drivetrain": {
-          "type": "STRING",
+        Drivetrain: {
+          type: "STRING",
         },
         "Title Status": {
-          "type": "STRING",
+          type: "STRING",
         },
-        "VIN": {
-          "type": "STRING",
+        VIN: {
+          type: "STRING",
         },
-        "Mileage": {
-          "type": "INTEGER",
-          "minimum": 0,
+        Mileage: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "Location": {
-          "type": "STRING",
+        Location: {
+          type: "STRING",
         },
-        "Transmission": {
-          "type": "STRING",
+        Transmission: {
+          type: "STRING",
         },
         "Body Style": {
-          "type": "STRING",
+          type: "STRING",
         },
         "Exterior Color": {
-          "type": "STRING",
+          type: "STRING",
         },
         "Interior Color": {
-          "type": "STRING",
+          type: "STRING",
         },
-        "Fuel": {
-          "type": "STRING",
+        Fuel: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "Make",
         "Model",
         "Year",
@@ -83,35 +83,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "Fuel",
       ],
     },
-    "exterior": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    exterior: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -120,35 +120,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "interior": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    interior: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -157,35 +157,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "dashboard": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    dashboard: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -194,35 +194,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "paint": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    paint: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -231,35 +231,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "rust": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    rust: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -268,35 +268,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "engine": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    engine: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -305,35 +305,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "undercarriage": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    undercarriage: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -342,43 +342,43 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "obd": {
-      "type": "OBJECT",
-      "properties": {
-        "codes": {
-          "type": "ARRAY",
-          "items": {
-            "type": "OBJECT",
-            "properties": {
-              "code": {
-                "type": "STRING",
+    obd: {
+      type: "OBJECT",
+      properties: {
+        codes: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              code: {
+                type: "STRING",
               },
-              "problems": {
-                "type": "ARRAY",
-                "items": {
-                  "type": "STRING",
+              problems: {
+                type: "ARRAY",
+                items: {
+                  type: "STRING",
                 },
               },
-              "score": {
-                "type": "NUMBER",
-                "minimum": 1,
-                "maximum": 10,
+              score: {
+                type: "NUMBER",
+                minimum: 1,
+                maximum: 10,
               },
-              "estimatedRepairCost": {
-                "type": "INTEGER",
-                "minimum": 0,
+              estimatedRepairCost: {
+                type: "INTEGER",
+                minimum: 0,
               },
-              "costExplanation": {
-                "type": "STRING",
+              costExplanation: {
+                type: "STRING",
               },
-              "incomplete": {
-                "type": "BOOLEAN",
+              incomplete: {
+                type: "BOOLEAN",
               },
-              "incompletion_reason": {
-                "type": "STRING",
+              incompletion_reason: {
+                type: "STRING",
               },
             },
-            "required": [
+            required: [
               "code",
               "problems",
               "score",
@@ -389,35 +389,35 @@ const VEHICLE_REPORT_SCHEMA = {
             ],
           },
         },
-        "overall": {
-          "type": "OBJECT",
-          "properties": {
-            "problems": {
-              "type": "ARRAY",
-              "items": {
-                "type": "STRING",
+        overall: {
+          type: "OBJECT",
+          properties: {
+            problems: {
+              type: "ARRAY",
+              items: {
+                type: "STRING",
               },
             },
-            "score": {
-              "type": "NUMBER",
-              "minimum": 1,
-              "maximum": 10,
+            score: {
+              type: "NUMBER",
+              minimum: 1,
+              maximum: 10,
             },
-            "estimatedRepairCost": {
-              "type": "INTEGER",
-              "minimum": 0,
+            estimatedRepairCost: {
+              type: "INTEGER",
+              minimum: 0,
             },
-            "costExplanation": {
-              "type": "STRING",
+            costExplanation: {
+              type: "STRING",
             },
-            "incomplete": {
-              "type": "BOOLEAN",
+            incomplete: {
+              type: "BOOLEAN",
             },
-            "incompletion_reason": {
-              "type": "STRING",
+            incompletion_reason: {
+              type: "STRING",
             },
           },
-          "required": [
+          required: [
             "problems",
             "score",
             "estimatedRepairCost",
@@ -427,40 +427,37 @@ const VEHICLE_REPORT_SCHEMA = {
           ],
         },
       },
-      "required": [
-        "codes",
-        "overall",
-      ],
+      required: ["codes", "overall"],
     },
-    "title": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    title: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -469,45 +466,45 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "records": {
-      "type": "OBJECT",
-      "properties": {
-        "verifiedMaintenance": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    records: {
+      type: "OBJECT",
+      properties: {
+        verifiedMaintenance: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "discrepancies": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+        discrepancies: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "verifiedMaintenance",
         "discrepancies",
         "incomplete",
         "incompletion_reason",
       ],
     },
-    "overallConditionScore": {
-      "type": "NUMBER",
-      "minimum": 1,
-      "maximum": 10,
+    overallConditionScore: {
+      type: "NUMBER",
+      minimum: 1,
+      maximum: 10,
     },
-    "overallComments": {
-      "type": "STRING",
+    overallComments: {
+      type: "STRING",
     },
   },
-  "required": [
+  required: [
     "vehicle",
     "exterior",
     "interior",
@@ -630,7 +627,6 @@ Before sending, ensure:
 • JSON parses—no trailing commas, no markdown, no extra text.
   `;
 
-
 // Types for Gemini API
 interface FileReference {
   uri: string;
@@ -653,7 +649,7 @@ function buildGeminiContentRest(
   systemPrompt: string,
   dataBlock: any,
   obd2Codes: any[],
-  uploadedFiles: FileReference[],
+  uploadedFiles: FileReference[]
 ): any {
   const parts = [];
 
@@ -690,16 +686,18 @@ function buildGeminiContentRest(
   }
 
   return {
-    contents: [{
-      parts: parts,
-    }],
+    contents: [
+      {
+        parts: parts,
+      },
+    ],
   };
 }
 
 // Call Gemini API for analysis
 async function callGeminiAnalysisRest(
   contents: any,
-  schema: any,
+  schema: any
 ): Promise<{ result: any; usage: GeminiUsage }> {
   try {
     const requestBody = {
@@ -720,7 +718,7 @@ async function callGeminiAnalysisRest(
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestBody),
-      },
+      }
     );
 
     if (!response.ok) {
@@ -736,7 +734,8 @@ async function callGeminiAnalysisRest(
 
     const candidate = responseData.candidates[0];
     if (
-      !candidate.content || !candidate.content.parts ||
+      !candidate.content ||
+      !candidate.content.parts ||
       candidate.content.parts.length === 0
     ) {
       throw new Error("No content in Gemini response");
@@ -755,6 +754,34 @@ async function callGeminiAnalysisRest(
   }
 }
 
+/*********************************************************************/
+/* 1️⃣  NEW helper – returns the *full* Gemini request body           */
+/*********************************************************************/
+function buildGeminiRequestBodyRest(
+  systemPrompt: string,
+  dataBlock: any,
+  obd2Codes: any[],
+  uploadedFiles: FileReference[],
+  schema: any
+) {
+  // Re‑use your existing “parts” builder:
+  const contents = buildGeminiContentRest(
+    systemPrompt,
+    dataBlock,
+    obd2Codes,
+    uploadedFiles
+  );
+
+  // Attach generationConfig & schema → this is now the *exact* body
+  return {
+    ...contents,
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: schema,
+      temperature: 0.1,
+    },
+  };
+}
 
 // Upload single image to Gemini Files API
 async function uploadImageToGeminiRest(
@@ -937,7 +964,8 @@ async function cleanupGeminiFilesRest(fileUris: string[]): Promise<void> {
 async function sendToDifyAPI(
   inspectionId: string,
   uploadedFiles: FileReference[],
-  vehicle_information: any
+  vehicle_information: any,
+  geminiRequestBody: any // ⬅️  new param
 ): Promise<void> {
   try {
     // const difyApiKey = Deno.env.get("DIFY_API_KEY");
@@ -951,6 +979,7 @@ async function sendToDifyAPI(
         inspection_id: inspectionId,
         process_data: JSON.stringify(uploadedFiles),
         vehicle_information: JSON.stringify(vehicle_information),
+        gemini_request_body: JSON.stringify(geminiRequestBody), // ⬅️  NEW
       },
       response_mode: "streaming",
       user: `inspection_${inspectionId}`,
@@ -966,21 +995,23 @@ async function sendToDifyAPI(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer app-zNmxCqT7QIptcDv5BpT1hEsa`,
+        Authorization: `Bearer app-zNmxCqT7QIptcDv5BpT1hEsa`,
       },
       body: JSON.stringify(difyPayload),
     });
 
     if (!difyResponse.ok) {
       const errorText = await difyResponse.text();
-      throw new Error(`Dify Workflow API request failed: ${difyResponse.status} ${difyResponse.statusText} - ${errorText}`);
+      throw new Error(
+        `Dify Workflow API request failed: ${difyResponse.status} ${difyResponse.statusText} - ${errorText}`
+      );
     }
 
     // Handle streaming response
     if (difyResponse.body) {
       const reader = difyResponse.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = '';
+      let buffer = "";
 
       try {
         while (true) {
@@ -989,84 +1020,99 @@ async function sendToDifyAPI(
 
           // Accumulate chunks in buffer to handle partial JSON
           buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          
+          const lines = buffer.split("\n");
+
           // Keep the last incomplete line in buffer
-          buffer = lines.pop() || '';
+          buffer = lines.pop() || "";
 
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
+            if (line.startsWith("data: ")) {
               try {
                 const jsonStr = line.slice(6).trim();
                 if (!jsonStr) continue;
-                
+
                 const data = JSON.parse(jsonStr);
-                
+
                 // Handle different event types with detailed logging
                 switch (data.event) {
-                  case 'workflow_started':
-                    console.log(`🚀 [WORKFLOW_STARTED] Inspection ${inspectionId}:`, {
-                      workflow_run_id: data.workflow_run_id,
-                      task_id: data.task_id,
-                      workflow_id: data.data?.workflow_id,
-                      created_at: data.data?.created_at,
-                    });
+                  case "workflow_started":
+                    console.log(
+                      `🚀 [WORKFLOW_STARTED] Inspection ${inspectionId}:`,
+                      {
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        workflow_id: data.data?.workflow_id,
+                        created_at: data.data?.created_at,
+                      }
+                    );
                     break;
 
-                  case 'node_started':
-                    console.log(`🔄 [NODE_STARTED] Inspection ${inspectionId}:`, {
-                      workflow_run_id: data.workflow_run_id,
-                      task_id: data.task_id,
-                      node_id: data.data?.node_id,
-                      node_type: data.data?.node_type,
-                      title: data.data?.title,
-                      index: data.data?.index,
-                      predecessor_node_id: data.data?.predecessor_node_id,
-                      created_at: data.data?.created_at,
-                    });
+                  case "node_started":
+                    console.log(
+                      `🔄 [NODE_STARTED] Inspection ${inspectionId}:`,
+                      {
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        node_id: data.data?.node_id,
+                        node_type: data.data?.node_type,
+                        title: data.data?.title,
+                        index: data.data?.index,
+                        predecessor_node_id: data.data?.predecessor_node_id,
+                        created_at: data.data?.created_at,
+                      }
+                    );
                     break;
 
-                  case 'text_chunk':
+                  case "text_chunk":
                     console.log(`📝 [TEXT_CHUNK] Inspection ${inspectionId}:`, {
                       workflow_run_id: data.workflow_run_id,
                       task_id: data.task_id,
-                      text: data.data?.text?.substring(0, 100) + (data.data?.text?.length > 100 ? '...' : ''),
+                      text:
+                        data.data?.text?.substring(0, 100) +
+                        (data.data?.text?.length > 100 ? "..." : ""),
                       from_variable_selector: data.data?.from_variable_selector,
                     });
                     break;
 
-                  case 'node_finished':
-                    console.log(`✅ [NODE_FINISHED] Inspection ${inspectionId}:`, {
-                      workflow_run_id: data.workflow_run_id,
-                      task_id: data.task_id,
-                      node_id: data.data?.node_id,
-                      node_type: data.data?.node_type,
-                      title: data.data?.title,
-                      index: data.data?.index,
-                      status: data.data?.status,
-                      elapsed_time: data.data?.elapsed_time,
-                      total_tokens: data.data?.execution_metadata?.total_tokens,
-                      total_price: data.data?.execution_metadata?.total_price,
-                      currency: data.data?.execution_metadata?.currency,
-                      error: data.data?.error,
-                    });
+                  case "node_finished":
+                    console.log(
+                      `✅ [NODE_FINISHED] Inspection ${inspectionId}:`,
+                      {
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        node_id: data.data?.node_id,
+                        node_type: data.data?.node_type,
+                        title: data.data?.title,
+                        index: data.data?.index,
+                        status: data.data?.status,
+                        elapsed_time: data.data?.elapsed_time,
+                        total_tokens:
+                          data.data?.execution_metadata?.total_tokens,
+                        total_price: data.data?.execution_metadata?.total_price,
+                        currency: data.data?.execution_metadata?.currency,
+                        error: data.data?.error,
+                      }
+                    );
                     break;
 
-                  case 'workflow_finished':
-                    console.log(`🏁 [WORKFLOW_FINISHED] Inspection ${inspectionId}:`, {
-                      workflow_run_id: data.workflow_run_id,
-                      task_id: data.task_id,
-                      workflow_id: data.data?.workflow_id,
-                      status: data.data?.status,
-                      elapsed_time: data.data?.elapsed_time,
-                      total_tokens: data.data?.total_tokens,
-                      total_steps: data.data?.total_steps,
-                      outputs: data.data?.outputs,
-                      error: data.data?.error,
-                      created_at: data.data?.created_at,
-                      finished_at: data.data?.finished_at,
-                    });
-                    
+                  case "workflow_finished":
+                    console.log(
+                      `🏁 [WORKFLOW_FINISHED] Inspection ${inspectionId}:`,
+                      {
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        workflow_id: data.data?.workflow_id,
+                        status: data.data?.status,
+                        elapsed_time: data.data?.elapsed_time,
+                        total_tokens: data.data?.total_tokens,
+                        total_steps: data.data?.total_steps,
+                        outputs: data.data?.outputs,
+                        error: data.data?.error,
+                        created_at: data.data?.created_at,
+                        finished_at: data.data?.finished_at,
+                      }
+                    );
+
                     // Update inspection record with workflow completion
                     const { error: updateError } = await supabase
                       .from("inspections")
@@ -1076,49 +1122,69 @@ async function sendToDifyAPI(
                       .eq("id", inspectionId);
 
                     if (updateError) {
-                      console.warn("❌ Failed to update inspection record:", updateError);
+                      console.warn(
+                        "❌ Failed to update inspection record:",
+                        updateError
+                      );
                     } else {
-                      console.log(`✅ Updated inspection ${inspectionId} with workflow completion`);
+                      console.log(
+                        `✅ Updated inspection ${inspectionId} with workflow completion`
+                      );
                     }
                     break;
 
-                  case 'tts_message':
-                    console.log(`🔊 [TTS_MESSAGE] Inspection ${inspectionId}:`, {
-                      workflow_run_id: data.workflow_run_id,
-                      task_id: data.task_id,
-                      message_id: data.message_id,
-                      audio_length: data.audio?.length || 0,
-                      created_at: data.created_at,
-                    });
+                  case "tts_message":
+                    console.log(
+                      `🔊 [TTS_MESSAGE] Inspection ${inspectionId}:`,
+                      {
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        message_id: data.message_id,
+                        audio_length: data.audio?.length || 0,
+                        created_at: data.created_at,
+                      }
+                    );
                     break;
 
-                  case 'tts_message_end':
-                    console.log(`🔇 [TTS_MESSAGE_END] Inspection ${inspectionId}:`, {
-                      workflow_run_id: data.workflow_run_id,
-                      task_id: data.task_id,
-                      message_id: data.message_id,
-                      created_at: data.created_at,
-                    });
+                  case "tts_message_end":
+                    console.log(
+                      `🔇 [TTS_MESSAGE_END] Inspection ${inspectionId}:`,
+                      {
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        message_id: data.message_id,
+                        created_at: data.created_at,
+                      }
+                    );
                     break;
 
-                  case 'ping':
-                    console.log(`💓 [PING] Inspection ${inspectionId}: Connection keepalive`);
+                  case "ping":
+                    console.log(
+                      `💓 [PING] Inspection ${inspectionId}: Connection keepalive`
+                    );
                     break;
 
                   default:
-                    console.log(`❓ [UNKNOWN_EVENT] Inspection ${inspectionId}:`, {
-                      event: data.event,
-                      workflow_run_id: data.workflow_run_id,
-                      task_id: data.task_id,
-                      data: data.data,
-                    });
+                    console.log(
+                      `❓ [UNKNOWN_EVENT] Inspection ${inspectionId}:`,
+                      {
+                        event: data.event,
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        data: data.data,
+                      }
+                    );
                     break;
                 }
               } catch (parseError) {
-                console.warn(`⚠️ Failed to parse streaming data for inspection ${inspectionId}:`, {
-                  error: parseError.message,
-                  line: line.substring(0, 200) + (line.length > 200 ? '...' : ''),
-                });
+                console.warn(
+                  `⚠️ Failed to parse streaming data for inspection ${inspectionId}:`,
+                  {
+                    error: parseError.message,
+                    line:
+                      line.substring(0, 200) + (line.length > 200 ? "..." : ""),
+                  }
+                );
               }
             }
           }
@@ -1128,22 +1194,23 @@ async function sendToDifyAPI(
       }
     }
 
-    console.log(`Successfully initiated Dify workflow for inspection ${inspectionId}`);
-
+    console.log(
+      `Successfully initiated Dify workflow for inspection ${inspectionId}`
+    );
   } catch (error) {
-    console.error(`Error sending data to Dify Workflow API for inspection ${inspectionId}:`, error);
+    console.error(
+      `Error sending data to Dify Workflow API for inspection ${inspectionId}:`,
+      error
+    );
     throw error;
   }
 }
 
 // Main Gemini processing function (replaces chunk processing)
-async function processGeminiAnalysisRest(
-  inspectionId: string
-): Promise<void> {
+async function processGeminiAnalysisRest(inspectionId: string): Promise<void> {
   let uploadedFiles: FileReference[] = [];
 
   try {
-
     // Get job and inspection data
     const { data: inspectionData, error: inspectionError } = await supabase
       .from("inspections")
@@ -1193,6 +1260,35 @@ async function processGeminiAnalysisRest(
     uploadedFiles = await batchUploadSupabaseImagesRest(allImages, 3);
 
     console.log("UPLOADED FILES : ", uploadedFiles);
+    // Build content for Gemini API
+    // const contents = buildGeminiContentRest(
+    //   PROMPT_MASTER,
+    //   {
+    //     vin: inspectionData.vin,
+    //     mileage: inspectionData.mileage,
+    //     zip: inspectionData.zip,
+    //     vinHistory: null,
+    //     marketPriceBands: null,
+    //   },
+    //   inspectionData.obd2_codes,
+    //   uploadedFiles,
+    // );
+
+    const geminiRequestBody = buildGeminiRequestBodyRest(
+      PROMPT_MASTER,
+      {
+        vin: inspectionData.vin,
+        mileage: inspectionData.mileage,
+        zip: inspectionData.zip,
+        vinHistory: null,
+        marketPriceBands: null,
+      },
+      inspectionData.obd2_codes,
+      uploadedFiles,
+      VEHICLE_REPORT_SCHEMA
+    );
+
+    // console.log("POPULATED PROMPT : ", contents);
 
     if (uploadedFiles.length === 0) {
       throw new Error("No images were successfully uploaded to Gemini");
@@ -1211,15 +1307,24 @@ async function processGeminiAnalysisRest(
       marketPriceBands: null,
     };
 
-    // Start Dify workflow in background process
-    EdgeRuntime.waitUntil(sendToDifyAPI(inspectionId, uploadedFiles, vehicle_information));
+    // … later, instead of the previous EdgeRuntime.waitUntil call
+    EdgeRuntime.waitUntil(
+      sendToDifyAPI(
+        inspectionId,
+        uploadedFiles,
+        vehicle_information,
+        geminiRequestBody // ⬅️  new argument
+      )
+    );
 
     console.log(
       `Successfully completed Gemini analysis and started Dify workflow for inspection ${inspectionId}`
     );
   } catch (error) {
-
-    console.error(`Error processing Gemini analysis for inspection ${inspectionId}:`, error);
+    console.error(
+      `Error processing Gemini analysis for inspection ${inspectionId}:`,
+      error
+    );
     throw new Error(`Failed to process Gemini analysis: ${error.message}`);
   } finally {
     // Always cleanup uploaded files
