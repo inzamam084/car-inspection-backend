@@ -226,7 +226,7 @@ async function sendToDifyAPI(
     const difyPayload = {
       inputs: {
         inspection_id: inspectionId,
-        uploaded_files: uploadedFiles,
+        process_data: uploadedFiles,
         vehicle_information: vehicle_information,
       },
       response_mode: "streaming",
