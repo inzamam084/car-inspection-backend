@@ -648,6 +648,114 @@ interface ImageData {
   mimeType?: string;
 }
 
+// Build content structure for Gemini API
+function buildGeminiContentRest(
+  systemPrompt: string,
+  dataBlock: any,
+  obd2Codes: any[],
+  uploadedFiles: FileReference[],
+): any {
+  const parts = [];
+
+  // Add system prompt
+  parts.push({ text: systemPrompt });
+
+  // Add data block
+  if (dataBlock) {
+    parts.push({
+      text: `DATA_BLOCK: ${JSON.stringify(dataBlock)}`,
+    });
+  }
+
+  // Add OBD2 codes
+  for (const code of obd2Codes) {
+    if (code.code) {
+      parts.push({
+        text: `Code: ${code.code}\nDescription: ${code.description || ""}`,
+      });
+    }
+  }
+
+  // Add file references grouped by category
+  for (const file of uploadedFiles) {
+    parts.push({
+      text: `Category: ${file.category}`,
+    });
+    parts.push({
+      file_data: {
+        mime_type: file.mimeType,
+        file_uri: file.uri,
+      },
+    });
+  }
+
+  return {
+    contents: [{
+      parts: parts,
+    }],
+  };
+}
+
+// Call Gemini API for analysis
+async function callGeminiAnalysisRest(
+  contents: any,
+  schema: any,
+): Promise<{ result: any; usage: GeminiUsage }> {
+  try {
+    const requestBody = {
+      ...contents,
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+        temperature: 0.1,
+      },
+    };
+
+    const response = await fetch(
+      `${GEMINI_CONFIG.baseUrl}/v1beta/models/${GEMINI_CONFIG.model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "X-Goog-Api-Key": GEMINI_CONFIG.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API error ${response.status}: ${errorText}`);
+    }
+
+    const responseData = await response.json();
+
+    if (!responseData.candidates || responseData.candidates.length === 0) {
+      throw new Error("No candidates in Gemini response");
+    }
+
+    const candidate = responseData.candidates[0];
+    if (
+      !candidate.content || !candidate.content.parts ||
+      candidate.content.parts.length === 0
+    ) {
+      throw new Error("No content in Gemini response");
+    }
+
+    const resultText = candidate.content.parts[0].text;
+    const parsedResult = JSON.parse(resultText);
+
+    return {
+      result: parsedResult,
+      usage: responseData.usageMetadata || {},
+    };
+  } catch (error) {
+    console.error("Gemini API call failed:", error);
+    throw error;
+  }
+}
+
+
 // Upload single image to Gemini Files API
 async function uploadImageToGeminiRest(
   imageUrl: string,
