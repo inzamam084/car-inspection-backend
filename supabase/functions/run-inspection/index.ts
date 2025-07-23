@@ -8,9 +8,64 @@ serve(async (req): Promise<Response> => {
   try {
     console.log("Request received..");
 
-    // Parse the webhook payload
-    const payload: WebhookPayload = await req.json();
+    // Check if request has a body
+    const contentLength = req.headers.get('content-length');
+    const contentType = req.headers.get('content-type');
+    
+    console.log(`Content-Length: ${contentLength}, Content-Type: ${contentType}`);
+
+    if (!contentLength || contentLength === '0') {
+      console.error("Request body is empty");
+      const errorResponse: ErrorResponse = {
+        error: "Request body is required"
+      };
+      return new Response(JSON.stringify(errorResponse), {
+        status: 400,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+    }
+
+    // Parse the webhook payload with error handling
+    let payload: WebhookPayload;
+    try {
+      const requestText = await req.text();
+      console.log("Raw request body:", requestText);
+      
+      if (!requestText.trim()) {
+        throw new Error("Empty request body");
+      }
+      
+      payload = JSON.parse(requestText);
+    } catch (parseError) {
+      console.error("JSON parsing error:", parseError);
+      const errorResponse: ErrorResponse = {
+        error: "Invalid JSON in request body"
+      };
+      return new Response(JSON.stringify(errorResponse), {
+        status: 400,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+    }
+
     console.log("Received webhook payload:", JSON.stringify(payload));
+
+    // Validate required fields
+    if (!payload.inspection_id) {
+      console.error("Missing inspection_id in payload");
+      const errorResponse: ErrorResponse = {
+        error: "inspection_id is required in request payload"
+      };
+      return new Response(JSON.stringify(errorResponse), {
+        status: 400,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+    }
 
     const inspectionId = payload.inspection_id;
     console.log(`Processing analysis for inspection ${inspectionId}`);

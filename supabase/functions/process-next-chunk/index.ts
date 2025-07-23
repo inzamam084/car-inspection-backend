@@ -15,58 +15,58 @@ declare const EdgeRuntime: any;
 const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
-// Vehicle Report JSON Schema (Gemini Format)
+
 const VEHICLE_REPORT_SCHEMA = {
-  "type": "OBJECT",
-  "properties": {
-    "vehicle": {
-      "type": "OBJECT",
-      "properties": {
-        "Make": {
-          "type": "STRING",
+  type: "OBJECT",
+  properties: {
+    vehicle: {
+      type: "OBJECT",
+      properties: {
+        Make: {
+          type: "STRING",
         },
-        "Model": {
-          "type": "STRING",
+        Model: {
+          type: "STRING",
         },
-        "Year": {
-          "type": "INTEGER",
+        Year: {
+          type: "INTEGER",
         },
-        "Engine": {
-          "type": "STRING",
+        Engine: {
+          type: "STRING",
         },
-        "Drivetrain": {
-          "type": "STRING",
+        Drivetrain: {
+          type: "STRING",
         },
         "Title Status": {
-          "type": "STRING",
+          type: "STRING",
         },
-        "VIN": {
-          "type": "STRING",
+        VIN: {
+          type: "STRING",
         },
-        "Mileage": {
-          "type": "INTEGER",
-          "minimum": 0,
+        Mileage: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "Location": {
-          "type": "STRING",
+        Location: {
+          type: "STRING",
         },
-        "Transmission": {
-          "type": "STRING",
+        Transmission: {
+          type: "STRING",
         },
         "Body Style": {
-          "type": "STRING",
+          type: "STRING",
         },
         "Exterior Color": {
-          "type": "STRING",
+          type: "STRING",
         },
         "Interior Color": {
-          "type": "STRING",
+          type: "STRING",
         },
-        "Fuel": {
-          "type": "STRING",
+        Fuel: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "Make",
         "Model",
         "Year",
@@ -83,35 +83,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "Fuel",
       ],
     },
-    "exterior": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    exterior: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -120,35 +120,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "interior": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    interior: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -157,35 +157,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "dashboard": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    dashboard: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -194,35 +194,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "paint": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    paint: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -231,35 +231,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "rust": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    rust: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -268,35 +268,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "engine": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    engine: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -305,35 +305,35 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "undercarriage": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    undercarriage: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -342,43 +342,43 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "obd": {
-      "type": "OBJECT",
-      "properties": {
-        "codes": {
-          "type": "ARRAY",
-          "items": {
-            "type": "OBJECT",
-            "properties": {
-              "code": {
-                "type": "STRING",
+    obd: {
+      type: "OBJECT",
+      properties: {
+        codes: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              code: {
+                type: "STRING",
               },
-              "problems": {
-                "type": "ARRAY",
-                "items": {
-                  "type": "STRING",
+              problems: {
+                type: "ARRAY",
+                items: {
+                  type: "STRING",
                 },
               },
-              "score": {
-                "type": "NUMBER",
-                "minimum": 1,
-                "maximum": 10,
+              score: {
+                type: "NUMBER",
+                minimum: 1,
+                maximum: 10,
               },
-              "estimatedRepairCost": {
-                "type": "INTEGER",
-                "minimum": 0,
+              estimatedRepairCost: {
+                type: "INTEGER",
+                minimum: 0,
               },
-              "costExplanation": {
-                "type": "STRING",
+              costExplanation: {
+                type: "STRING",
               },
-              "incomplete": {
-                "type": "BOOLEAN",
+              incomplete: {
+                type: "BOOLEAN",
               },
-              "incompletion_reason": {
-                "type": "STRING",
+              incompletion_reason: {
+                type: "STRING",
               },
             },
-            "required": [
+            required: [
               "code",
               "problems",
               "score",
@@ -389,35 +389,35 @@ const VEHICLE_REPORT_SCHEMA = {
             ],
           },
         },
-        "overall": {
-          "type": "OBJECT",
-          "properties": {
-            "problems": {
-              "type": "ARRAY",
-              "items": {
-                "type": "STRING",
+        overall: {
+          type: "OBJECT",
+          properties: {
+            problems: {
+              type: "ARRAY",
+              items: {
+                type: "STRING",
               },
             },
-            "score": {
-              "type": "NUMBER",
-              "minimum": 1,
-              "maximum": 10,
+            score: {
+              type: "NUMBER",
+              minimum: 1,
+              maximum: 10,
             },
-            "estimatedRepairCost": {
-              "type": "INTEGER",
-              "minimum": 0,
+            estimatedRepairCost: {
+              type: "INTEGER",
+              minimum: 0,
             },
-            "costExplanation": {
-              "type": "STRING",
+            costExplanation: {
+              type: "STRING",
             },
-            "incomplete": {
-              "type": "BOOLEAN",
+            incomplete: {
+              type: "BOOLEAN",
             },
-            "incompletion_reason": {
-              "type": "STRING",
+            incompletion_reason: {
+              type: "STRING",
             },
           },
-          "required": [
+          required: [
             "problems",
             "score",
             "estimatedRepairCost",
@@ -427,40 +427,37 @@ const VEHICLE_REPORT_SCHEMA = {
           ],
         },
       },
-      "required": [
-        "codes",
-        "overall",
-      ],
+      required: ["codes", "overall"],
     },
-    "title": {
-      "type": "OBJECT",
-      "properties": {
-        "problems": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    title: {
+      type: "OBJECT",
+      properties: {
+        problems: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "score": {
-          "type": "NUMBER",
-          "minimum": 1,
-          "maximum": 10,
+        score: {
+          type: "NUMBER",
+          minimum: 1,
+          maximum: 10,
         },
-        "estimatedRepairCost": {
-          "type": "INTEGER",
-          "minimum": 0,
+        estimatedRepairCost: {
+          type: "INTEGER",
+          minimum: 0,
         },
-        "costExplanation": {
-          "type": "STRING",
+        costExplanation: {
+          type: "STRING",
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "problems",
         "score",
         "estimatedRepairCost",
@@ -469,45 +466,45 @@ const VEHICLE_REPORT_SCHEMA = {
         "incompletion_reason",
       ],
     },
-    "records": {
-      "type": "OBJECT",
-      "properties": {
-        "verifiedMaintenance": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+    records: {
+      type: "OBJECT",
+      properties: {
+        verifiedMaintenance: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "discrepancies": {
-          "type": "ARRAY",
-          "items": {
-            "type": "STRING",
+        discrepancies: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
           },
         },
-        "incomplete": {
-          "type": "BOOLEAN",
+        incomplete: {
+          type: "BOOLEAN",
         },
-        "incompletion_reason": {
-          "type": "STRING",
+        incompletion_reason: {
+          type: "STRING",
         },
       },
-      "required": [
+      required: [
         "verifiedMaintenance",
         "discrepancies",
         "incomplete",
         "incompletion_reason",
       ],
     },
-    "overallConditionScore": {
-      "type": "NUMBER",
-      "minimum": 1,
-      "maximum": 10,
+    overallConditionScore: {
+      type: "NUMBER",
+      minimum: 1,
+      maximum: 10,
     },
-    "overallComments": {
-      "type": "STRING",
+    overallComments: {
+      type: "STRING",
     },
   },
-  "required": [
+  required: [
     "vehicle",
     "exterior",
     "interior",
@@ -647,28 +644,150 @@ interface ImageData {
   mimeType?: string;
 }
 
-interface CostInfo {
-  model: string;
-  totalTokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  totalCost: number;
-  inputCost: number;
-  outputCost: number;
+// Build content structure for Gemini API
+function buildGeminiContentRest(
+  systemPrompt: string,
+  dataBlock: any,
+  obd2Codes: any[],
+  uploadedFiles: FileReference[]
+): any {
+  const parts = [];
+
+  // Add system prompt
+  parts.push({ text: systemPrompt });
+
+  // Add data block
+  if (dataBlock) {
+    parts.push({
+      text: `DATA_BLOCK: ${JSON.stringify(dataBlock)}`,
+    });
+  }
+
+  // Add OBD2 codes
+  for (const code of obd2Codes) {
+    if (code.code) {
+      parts.push({
+        text: `Code: ${code.code}\nDescription: ${code.description || ""}`,
+      });
+    }
+  }
+
+  // Add file references grouped by category
+  for (const file of uploadedFiles) {
+    parts.push({
+      text: `Category: ${file.category}`,
+    });
+    parts.push({
+      file_data: {
+        mime_type: file.mimeType,
+        file_uri: file.uri,
+      },
+    });
+  }
+
+  return {
+    contents: [
+      {
+        parts: parts,
+      },
+    ],
+  };
 }
 
-interface GeminiUsage {
-  promptTokenCount?: number;
-  candidatesTokenCount?: number;
-  totalTokenCount?: number;
+// Call Gemini API for analysis
+async function callGeminiAnalysisRest(
+  contents: any,
+  schema: any
+): Promise<{ result: any; usage: GeminiUsage }> {
+  try {
+    const requestBody = {
+      ...contents,
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+        temperature: 0.1,
+      },
+    };
+
+    const response = await fetch(
+      `${GEMINI_CONFIG.baseUrl}/v1beta/models/${GEMINI_CONFIG.model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "X-Goog-Api-Key": GEMINI_CONFIG.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API error ${response.status}: ${errorText}`);
+    }
+
+    const responseData = await response.json();
+
+    if (!responseData.candidates || responseData.candidates.length === 0) {
+      throw new Error("No candidates in Gemini response");
+    }
+
+    const candidate = responseData.candidates[0];
+    if (
+      !candidate.content ||
+      !candidate.content.parts ||
+      candidate.content.parts.length === 0
+    ) {
+      throw new Error("No content in Gemini response");
+    }
+
+    const resultText = candidate.content.parts[0].text;
+    const parsedResult = JSON.parse(resultText);
+
+    return {
+      result: parsedResult,
+      usage: responseData.usageMetadata || {},
+    };
+  } catch (error) {
+    console.error("Gemini API call failed:", error);
+    throw error;
+  }
 }
 
+/*********************************************************************/
+/* 1️⃣  NEW helper – returns the *full* Gemini request body           */
+/*********************************************************************/
+function buildGeminiRequestBodyRest(
+  systemPrompt: string,
+  dataBlock: any,
+  obd2Codes: any[],
+  uploadedFiles: FileReference[],
+  schema: any
+) {
+  // Re‑use your existing “parts” builder:
+  const contents = buildGeminiContentRest(
+    systemPrompt,
+    dataBlock,
+    obd2Codes,
+    uploadedFiles
+  );
+
+  // Attach generationConfig & schema → this is now the *exact* body
+  return {
+    ...contents,
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: schema,
+      temperature: 0.1,
+    },
+  };
+}
 
 // Upload single image to Gemini Files API
 async function uploadImageToGeminiRest(
   imageUrl: string,
   category: string,
-  imageId: string,
+  imageId: string
 ): Promise<FileReference | null> {
   try {
     // Step 1: Fetch image from Supabase public URL
@@ -744,7 +863,7 @@ async function uploadImageToGeminiRest(
 // Batch upload images to Gemini
 async function batchUploadSupabaseImagesRest(
   images: ImageData[],
-  concurrency: number = 3,
+  concurrency: number = 3
 ): Promise<FileReference[]> {
   const uploadedFiles: FileReference[] = [];
 
@@ -755,10 +874,13 @@ async function batchUploadSupabaseImagesRest(
     const batchPromises = batch.map(async (image) => {
       try {
         let imageUrl: string;
-        
+
         // Check if the path is already a full URL
         const imagePath = image.converted_path || image.path;
-        if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+        if (
+          imagePath.startsWith("http://") ||
+          imagePath.startsWith("https://")
+        ) {
           // Path is already a full URL, use it directly
           imageUrl = imagePath;
         } else {
@@ -777,7 +899,7 @@ async function batchUploadSupabaseImagesRest(
         return await uploadImageToGeminiRest(
           imageUrl,
           image.category,
-          image.id.toString(),
+          image.id.toString()
         );
       } catch (error) {
         console.error(`Failed to process image ${image.path}:`, error);
@@ -800,147 +922,13 @@ async function batchUploadSupabaseImagesRest(
     }
 
     console.log(
-      `Uploaded batch ${Math.floor(i / concurrency) + 1}/${
-        Math.ceil(images.length / concurrency)
-      }`,
+      `Uploaded batch ${Math.floor(i / concurrency) + 1}/${Math.ceil(
+        images.length / concurrency
+      )}`
     );
   }
 
   return uploadedFiles;
-}
-
-// Build content structure for Gemini API
-function buildGeminiContentRest(
-  systemPrompt: string,
-  dataBlock: any,
-  obd2Codes: any[],
-  uploadedFiles: FileReference[],
-): any {
-  const parts = [];
-
-  // Add system prompt
-  parts.push({ text: systemPrompt });
-
-  // Add data block
-  if (dataBlock) {
-    parts.push({
-      text: `DATA_BLOCK: ${JSON.stringify(dataBlock)}`,
-    });
-  }
-
-  // Add OBD2 codes
-  for (const code of obd2Codes) {
-    if (code.code) {
-      parts.push({
-        text: `Code: ${code.code}\nDescription: ${code.description || ""}`,
-      });
-    }
-  }
-
-  // Add file references grouped by category
-  for (const file of uploadedFiles) {
-    parts.push({
-      text: `Category: ${file.category}`,
-    });
-    parts.push({
-      file_data: {
-        mime_type: file.mimeType,
-        file_uri: file.uri,
-      },
-    });
-  }
-
-  return {
-    contents: [{
-      parts: parts,
-    }],
-  };
-}
-
-// Call Gemini API for analysis
-async function callGeminiAnalysisRest(
-  contents: any,
-  schema: any,
-): Promise<{ result: any; usage: GeminiUsage }> {
-  try {
-    const requestBody = {
-      ...contents,
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: schema,
-        temperature: 0.1,
-      },
-    };
-
-    const response = await fetch(
-      `${GEMINI_CONFIG.baseUrl}/v1beta/models/${GEMINI_CONFIG.model}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "X-Goog-Api-Key": GEMINI_CONFIG.apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      },
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini API error ${response.status}: ${errorText}`);
-    }
-
-    const responseData = await response.json();
-
-    if (!responseData.candidates || responseData.candidates.length === 0) {
-      throw new Error("No candidates in Gemini response");
-    }
-
-    const candidate = responseData.candidates[0];
-    if (
-      !candidate.content || !candidate.content.parts ||
-      candidate.content.parts.length === 0
-    ) {
-      throw new Error("No content in Gemini response");
-    }
-
-    const resultText = candidate.content.parts[0].text;
-    const parsedResult = JSON.parse(resultText);
-
-    return {
-      result: parsedResult,
-      usage: responseData.usageMetadata || {},
-    };
-  } catch (error) {
-    console.error("Gemini API call failed:", error);
-    throw error;
-  }
-}
-
-// Calculate cost for Gemini API
-function calculateGeminiCostRest(usage: GeminiUsage): CostInfo {
-  const inputTokens = usage.promptTokenCount || 0;
-  const outputTokens = usage.candidatesTokenCount || 0;
-  const totalTokens = usage.totalTokenCount || inputTokens + outputTokens;
-
-  // Gemini 1.5 Pro pricing (update with current rates)
-  const GEMINI_RATES = {
-    inputTokenRate: 0.00125 / 1000, // $1.25 per 1M input tokens
-    outputTokenRate: 0.005 / 1000, // $5.00 per 1M output tokens
-  };
-
-  const inputCost = inputTokens * GEMINI_RATES.inputTokenRate;
-  const outputCost = outputTokens * GEMINI_RATES.outputTokenRate;
-  const totalCost = inputCost + outputCost;
-
-  return {
-    model: GEMINI_CONFIG.model,
-    totalTokens,
-    inputTokens,
-    outputTokens,
-    totalCost,
-    inputCost,
-    outputCost,
-  };
 }
 
 // Cleanup uploaded files from Gemini
@@ -958,12 +946,12 @@ async function cleanupGeminiFilesRest(fileUris: string[]): Promise<void> {
           headers: {
             "X-Goog-Api-Key": GEMINI_CONFIG.apiKey,
           },
-        },
+        }
       );
 
       if (!deleteResponse.ok) {
         console.warn(
-          `Failed to delete file ${fileId}: ${deleteResponse.statusText}`,
+          `Failed to delete file ${fileId}: ${deleteResponse.statusText}`
         );
       }
     } catch (error) {
@@ -971,30 +959,274 @@ async function cleanupGeminiFilesRest(fileUris: string[]): Promise<void> {
     }
   }
 }
-// Main Gemini processing function (replaces chunk processing)
-async function processGeminiAnalysisRest(
-  jobId: string,
+
+// Send data to Dify Workflow API
+async function sendToDifyAPI(
   inspectionId: string,
+  uploadedFiles: FileReference[],
+  vehicle_information: any,
+  geminiRequestBody: any // ⬅️  new param
 ): Promise<void> {
+  try {
+    // const difyApiKey = Deno.env.get("DIFY_API_KEY");
+    // if (!difyApiKey) {
+    //   throw new Error("DIFY_API_KEY environment variable is not set");
+    // }
+
+    // Prepare inputs for Dify workflow
+    const difyPayload = {
+      inputs: {
+        inspection_id: inspectionId,
+        // process_data: JSON.stringify(uploadedFiles),
+        // vehicle_information: JSON.stringify(vehicle_information),
+        gemini_request_body: JSON.stringify(geminiRequestBody), // ⬅️  NEW
+      },
+      response_mode: "streaming",
+      user: `inspection_${inspectionId}`,
+    };
+
+    console.log("Sending data to Dify Workflow API:", {
+      inspection_id: inspectionId,
+      uploaded_files_count: uploadedFiles.length,
+      vehicle_information: vehicle_information,
+    });
+
+    const difyResponse = await fetch("https://api.dify.ai/v1/workflows/run", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer app-zNmxCqT7QIptcDv5BpT1hEsa`,
+      },
+      body: JSON.stringify(difyPayload),
+    });
+
+    if (!difyResponse.ok) {
+      const errorText = await difyResponse.text();
+      throw new Error(
+        `Dify Workflow API request failed: ${difyResponse.status} ${difyResponse.statusText} - ${errorText}`
+      );
+    }
+
+    // Handle streaming response
+    if (difyResponse.body) {
+      const reader = difyResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          // Accumulate chunks in buffer to handle partial JSON
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+
+          // Keep the last incomplete line in buffer
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const jsonStr = line.slice(6).trim();
+                if (!jsonStr) continue;
+
+                const data = JSON.parse(jsonStr);
+
+                // Handle different event types with detailed logging
+                switch (data.event) {
+                  case "workflow_started":
+                    console.log(
+                      `🚀 [WORKFLOW_STARTED] Inspection ${inspectionId}:`,
+                      {
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        workflow_id: data.data?.workflow_id,
+                        created_at: data.data?.created_at,
+                      }
+                    );
+                    break;
+
+                  case "node_started":
+                    console.log(
+                      `🔄 [NODE_STARTED] Inspection ${inspectionId}:`,
+                      {
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        node_id: data.data?.node_id,
+                        node_type: data.data?.node_type,
+                        title: data.data?.title,
+                        index: data.data?.index,
+                        predecessor_node_id: data.data?.predecessor_node_id,
+                        created_at: data.data?.created_at,
+                      }
+                    );
+                    break;
+
+                  case "text_chunk":
+                    console.log(`📝 [TEXT_CHUNK] Inspection ${inspectionId}:`, {
+                      workflow_run_id: data.workflow_run_id,
+                      task_id: data.task_id,
+                      text:
+                        data.data?.text?.substring(0, 100) +
+                        (data.data?.text?.length > 100 ? "..." : ""),
+                      from_variable_selector: data.data?.from_variable_selector,
+                    });
+                    break;
+
+                  case "node_finished":
+                    console.log(
+                      `✅ [NODE_FINISHED] Inspection ${inspectionId}:`,
+                      {
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        node_id: data.data?.node_id,
+                        node_type: data.data?.node_type,
+                        title: data.data?.title,
+                        index: data.data?.index,
+                        status: data.data?.status,
+                        elapsed_time: data.data?.elapsed_time,
+                        total_tokens:
+                          data.data?.execution_metadata?.total_tokens,
+                        total_price: data.data?.execution_metadata?.total_price,
+                        currency: data.data?.execution_metadata?.currency,
+                        error: data.data?.error,
+                      }
+                    );
+                    break;
+
+                  case "workflow_finished":
+                    console.log(
+                      `🏁 [WORKFLOW_FINISHED] Inspection ${inspectionId}:`,
+                      {
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        workflow_id: data.data?.workflow_id,
+                        status: data.data?.status,
+                        elapsed_time: data.data?.elapsed_time,
+                        total_tokens: data.data?.total_tokens,
+                        total_steps: data.data?.total_steps,
+                        outputs: data.data?.outputs,
+                        error: data.data?.error,
+                        created_at: data.data?.created_at,
+                        finished_at: data.data?.finished_at,
+                      }
+                    );
+
+                    // Update inspection record with workflow completion
+                    const { error: updateError } = await supabase
+                      .from("inspections")
+                      .update({
+                        workflow_run_id: data.workflow_run_id,
+                      })
+                      .eq("id", inspectionId);
+
+                    if (updateError) {
+                      console.warn(
+                        "❌ Failed to update inspection record:",
+                        updateError
+                      );
+                    } else {
+                      console.log(
+                        `✅ Updated inspection ${inspectionId} with workflow completion`
+                      );
+                    }
+                    break;
+
+                  case "tts_message":
+                    console.log(
+                      `🔊 [TTS_MESSAGE] Inspection ${inspectionId}:`,
+                      {
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        message_id: data.message_id,
+                        audio_length: data.audio?.length || 0,
+                        created_at: data.created_at,
+                      }
+                    );
+                    break;
+
+                  case "tts_message_end":
+                    console.log(
+                      `🔇 [TTS_MESSAGE_END] Inspection ${inspectionId}:`,
+                      {
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        message_id: data.message_id,
+                        created_at: data.created_at,
+                      }
+                    );
+                    break;
+
+                  case "ping":
+                    console.log(
+                      `💓 [PING] Inspection ${inspectionId}: Connection keepalive`
+                    );
+                    break;
+
+                  default:
+                    console.log(
+                      `❓ [UNKNOWN_EVENT] Inspection ${inspectionId}:`,
+                      {
+                        event: data.event,
+                        workflow_run_id: data.workflow_run_id,
+                        task_id: data.task_id,
+                        data: data.data,
+                      }
+                    );
+                    break;
+                }
+              } catch (parseError) {
+                console.warn(
+                  `⚠️ Failed to parse streaming data for inspection ${inspectionId}:`,
+                  {
+                    error: parseError.message,
+                    line:
+                      line.substring(0, 200) + (line.length > 200 ? "..." : ""),
+                  }
+                );
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+
+    console.log(
+      `Successfully initiated Dify workflow for inspection ${inspectionId}`
+    );
+  } catch (error) {
+    console.error(
+      `Error sending data to Dify Workflow API for inspection ${inspectionId}:`,
+      error
+    );
+    throw error;
+  }
+}
+
+// Main Gemini processing function (replaces chunk processing)
+async function processGeminiAnalysisRest(inspectionId: string): Promise<void> {
   let uploadedFiles: FileReference[] = [];
 
   try {
-    console.log(`Starting Gemini REST analysis for job ${jobId}`);
-
     // Get job and inspection data
     const { data: inspectionData, error: inspectionError } = await supabase
       .from("inspections")
-      .select(`
+      .select(
+        `
         id, vin, mileage, zip,
         photos(*),
         obd2_codes:obd2_codes(*),
         title_images:title_images(*)
-      `)
+      `
+      )
       .eq("id", inspectionId)
       .single();
-    
-    console.log("INSPECTION DATA : ", inspectionData)
-    console.log("INSPECTION ERROR : ", inspectionError)
+
+    console.log("INSPECTION DATA : ", inspectionData);
+    console.log("INSPECTION ERROR : ", inspectionError);
 
     if (inspectionError || !inspectionData) {
       throw new Error("Failed to fetch inspection data");
@@ -1006,14 +1238,14 @@ async function processGeminiAnalysisRest(
         ...p,
         category: p.category,
       })),
-      ...inspectionData.obd2_codes.filter((o: any) => o.image_path).map((
-        o: any,
-      ) => ({
-        ...o,
-        category: "obd",
-        path: o.image_path,
-        converted_path: o.converted_path,
-      })),
+      ...inspectionData.obd2_codes
+        .filter((o: any) => o.image_path)
+        .map((o: any) => ({
+          ...o,
+          category: "obd",
+          path: o.image_path,
+          converted_path: o.converted_path,
+        })),
       ...inspectionData.title_images.map((t: any) => ({
         ...t,
         category: "title",
@@ -1021,24 +1253,28 @@ async function processGeminiAnalysisRest(
     ];
 
     console.log(
-      `Processing ${allImages.length} images for inspection ${inspectionId}`,
+      `Processing ${allImages.length} images for inspection ${inspectionId}`
     );
 
     // Upload all images to Gemini Files API
     uploadedFiles = await batchUploadSupabaseImagesRest(allImages, 3);
 
-    console.log("UPLOADED FILES : ", uploadedFiles)
-
-    if (uploadedFiles.length === 0) {
-      throw new Error("No images were successfully uploaded to Gemini");
-    }
-
-    console.log(
-      `Successfully uploaded ${uploadedFiles.length}/${allImages.length} images to Gemini`,
-    );
-
+    console.log("UPLOADED FILES : ", uploadedFiles);
     // Build content for Gemini API
-    const contents = buildGeminiContentRest(
+    // const contents = buildGeminiContentRest(
+    //   PROMPT_MASTER,
+    //   {
+    //     vin: inspectionData.vin,
+    //     mileage: inspectionData.mileage,
+    //     zip: inspectionData.zip,
+    //     vinHistory: null,
+    //     marketPriceBands: null,
+    //   },
+    //   inspectionData.obd2_codes,
+    //   uploadedFiles,
+    // );
+
+    const geminiRequestBody = buildGeminiRequestBodyRest(
       PROMPT_MASTER,
       {
         vin: inspectionData.vin,
@@ -1049,50 +1285,54 @@ async function processGeminiAnalysisRest(
       },
       inspectionData.obd2_codes,
       uploadedFiles,
+      VEHICLE_REPORT_SCHEMA
     );
 
-    console.log("POPULATED PROMPT : ", contents)
+    // console.log("POPULATED PROMPT : ", contents);
 
-    // Call Gemini API directly
-    const { result: analysisResult, usage } = await callGeminiAnalysisRest(contents, VEHICLE_REPORT_SCHEMA);
-
-    // Calculate cost
-    const cost = calculateGeminiCostRest(usage);
-
-    // Update job with results
-    await supabase
-      .from("processing_jobs")
-      .update({
-        status: "completed",
-        chunk_result: analysisResult,
-        cost: cost.totalCost,
-        total_tokens: cost.totalTokens,
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", jobId);
+    if (uploadedFiles.length === 0) {
+      throw new Error("No images were successfully uploaded to Gemini");
+    }
 
     console.log(
-      `Successfully completed Gemini analysis for inspection ${inspectionId}`,
+      `Successfully uploaded ${uploadedFiles.length}/${allImages.length} images to Gemini`
+    );
+
+    // Prepare vehicle information object
+    const vehicle_information = {
+      vin: inspectionData.vin,
+      mileage: inspectionData.mileage,
+      zip: inspectionData.zip,
+      vinHistory: null,
+      marketPriceBands: null,
+    };
+
+    // … later, instead of the previous EdgeRuntime.waitUntil call
+    EdgeRuntime.waitUntil(
+      sendToDifyAPI(
+        inspectionId,
+        uploadedFiles,
+        vehicle_information,
+        geminiRequestBody // ⬅️  new argument
+      )
+    );
+
+    console.log(
+      `Successfully completed Gemini analysis and started Dify workflow for inspection ${inspectionId}`
     );
   } catch (error) {
-    console.error(`Error processing Gemini analysis ${jobId}:`, error);
-
-    // Update job status to failed
-    await supabase
-      .from("processing_jobs")
-      .update({
-        status: "failed",
-        error_message: (error as Error).message,
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", jobId);
+    console.error(
+      `Error processing Gemini analysis for inspection ${inspectionId}:`,
+      error
+    );
+    throw new Error(`Failed to process Gemini analysis: ${error.message}`);
   } finally {
     // Always cleanup uploaded files
-    if (uploadedFiles.length > 0) {
-      const fileUris = uploadedFiles.map((f) => f.uri);
-      await cleanupGeminiFilesRest(fileUris);
-      console.log(`Cleaned up ${fileUris.length} uploaded files from Gemini`);
-    }
+    // if (uploadedFiles.length > 0) {
+    //   const fileUris = uploadedFiles.map((f) => f.uri);
+    //   await cleanupGeminiFilesRest(fileUris);
+    //   console.log(`Cleaned up ${fileUris.length} uploaded files from Gemini`);
+    // }
   }
 }
 // Main serve function
@@ -1105,193 +1345,22 @@ serve(async (req) => {
       inspection_id: inspectionId,
       completed_sequence: completedSequence,
     } = payload;
-    console.log(
-      `Looking for next job after sequence ${completedSequence} for inspection ${inspectionId}`,
-    );
-    // Find the next pending job by sequence order (any job type)
-    const { data: nextJob, error: jobError } = await supabase.from(
-      "processing_jobs",
-    ).select("*").eq("inspection_id", inspectionId).eq("status", "pending").gt(
-      "sequence_order",
-      completedSequence,
-    ).order("sequence_order", {
-      ascending: true,
-    }).limit(1).maybeSingle();
-    if (jobError) {
-      console.error("Error fetching next job:", jobError);
-      return new Response(
-        JSON.stringify({
-          error: "Failed to fetch next job",
-        }),
-        {
-          status: 500,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      );
-    }
-    if (!nextJob) {
-      console.log("No more pending jobs found");
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: "No more jobs to process",
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      );
-    }
-    // Handle single job (chunk_analysis, fair_market_value, or expert_advice)
-    console.log(
-      `Found next job: ${nextJob.id} (sequence ${nextJob.sequence_order}) of type: ${nextJob.job_type}`,
-    );
-    // Update job status to processing
-    await supabase.from("processing_jobs").update({
-      status: "processing",
-      started_at: new Date().toISOString(),
-    }).eq("id", nextJob.id);
-    // Handle different job types
-    if (
-      nextJob.job_type === "chunk_analysis" ||
-      nextJob.job_type === "gemini_analysis"
-    ) {
-      // Start background processing for Gemini analysis
-      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
-        EdgeRuntime.waitUntil(
-          processGeminiAnalysisRest(nextJob.id, inspectionId),
-        );
-      } else {
-        // Fallback for environments without EdgeRuntime.waitUntil
-        processGeminiAnalysisRest(nextJob.id, inspectionId).catch(
-          (error: Error) => {
-            console.error(
-              `Background Gemini processing failed for job ${nextJob.id}:`,
-              error,
-            );
-          },
-        );
-      }
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: "Gemini analysis started in background",
-          jobId: nextJob.id,
-          chunkIndex: nextJob.chunk_index,
-          totalChunks: nextJob.total_chunks,
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      );
-    } else if (nextJob.job_type === "fair_market_value") {
-      // Trigger fair market value researcher
-      const response = await fetch(
-        `${supabaseUrl}/functions/v1/fair-market-value-researcher`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${supabaseServiceKey}`,
-          },
-          body: JSON.stringify({
-            inspection_id: inspectionId,
-          }),
-        },
-      );
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: "Fair market value analysis started",
-          jobId: nextJob.id,
-          jobType: nextJob.job_type,
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      );
-    } else if (nextJob.job_type === "ownership_cost_forecast") {
-      // Trigger ownership cost forecast researcher
-      const response = await fetch(
-        `${supabaseUrl}/functions/v1/ownership-cost-forecast`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${supabaseServiceKey}`,
-          },
-          body: JSON.stringify({
-            inspection_id: inspectionId,
-          }),
-        },
-      );
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: "Ownership cost forecast analysis started",
-          jobId: nextJob.id,
-          jobType: nextJob.job_type,
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      );
-    } else if (nextJob.job_type === "expert_advice") {
-      // Trigger expert advice researcher
-      const response = await fetch(
-        `${supabaseUrl}/functions/v1/expert-advice-researcher`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${supabaseServiceKey}`,
-          },
-          body: JSON.stringify({
-            inspection_id: inspectionId,
-          }),
-        },
-      );
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: "Expert advice analysis started",
-          jobId: nextJob.id,
-          jobType: nextJob.job_type,
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      );
-    }
 
-    // Default fallback for unknown job types
+    // Start background processing for Gemini analysis
+    EdgeRuntime.waitUntil(processGeminiAnalysisRest(inspectionId));
+
+    // Return success response
     return new Response(
       JSON.stringify({
-        error: "Unknown job type",
-        jobType: nextJob.job_type,
+        message: "Processing started for inspection",
+        inspectionId: inspectionId,
       }),
       {
-        status: 400,
+        status: 200,
         headers: {
           "Content-Type": "application/json",
         },
-      },
+      }
     );
   } catch (error) {
     console.error("Unexpected error:", error);
@@ -1304,7 +1373,7 @@ serve(async (req) => {
         headers: {
           "Content-Type": "application/json",
         },
-      },
+      }
     );
   }
 });
