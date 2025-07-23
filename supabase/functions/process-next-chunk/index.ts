@@ -13,6 +13,7 @@ const GEMINI_CONFIG = {
 declare const EdgeRuntime: any;
 // Initialize Supabase client
 const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+const difyApiKey = Deno.env.get("DIFY_WORKFLOW_API_KEY") || "";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -995,7 +996,7 @@ async function sendToDifyAPI(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer app-zNmxCqT7QIptcDv5BpT1hEsa`,
+        Authorization: `Bearer ${difyApiKey}`,
       },
       body: JSON.stringify(difyPayload),
     });
