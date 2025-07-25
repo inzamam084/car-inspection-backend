@@ -69,36 +69,44 @@ serve(async (req): Promise<Response> => {
     // Check if this is extension data (has vehicleData) or webhook data (has inspection_id)
     if ("vehicleData" in payload) {
       // Handle extension data
-      console.log("Processing extension vehicle data");
+      console.log("Processing extension vehicle data (wrapped format)");
       const extensionPayload = payload as ExtensionPayload;
 
-      const result = await processExtensionData(extensionPayload.vehicleData);
+      // Create a temporary inspection ID for immediate response
+      const tempInspectionId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-      if (result.success) {
-        const response: ApiResponse = {
-          success: true,
-          message: "Extension data processed successfully",
-          inspectionId: result.inspectionId!,
-          status: "processing",
-        };
+      // Run extension processing in background
+      const backgroundTask = async () => {
+        try {
+          const result = await processExtensionData(extensionPayload.vehicleData);
+          if (!result.success) {
+            console.error(`Extension processing failed: ${result.error}`);
+          }
+        } catch (error) {
+          console.error("Background extension processing error:", error);
+        }
+      };
 
-        return new Response(JSON.stringify(response), {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+        EdgeRuntime.waitUntil(backgroundTask());
       } else {
-        const errorResponse: ErrorResponse = {
-          error: result.error || "Failed to process extension data",
-        };
-        return new Response(JSON.stringify(errorResponse), {
-          status: 500,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
+        backgroundTask().catch((err) => console.error(err));
       }
+
+      // Return immediate response
+      const response: ApiResponse = {
+        success: true,
+        message: "Extension data processing started in background",
+        inspectionId: tempInspectionId,
+        status: "processing",
+      };
+
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
     } else if ("inspection_id" in payload) {
       // Handle webhook data (existing logic)
       const webhookPayload = payload as WebhookPayload;
@@ -176,33 +184,41 @@ serve(async (req): Promise<Response> => {
       console.log("Processing extension vehicle data (direct format)");
       const vehicleData = payload as ExtensionVehicleData;
 
-      const result = await processExtensionData(vehicleData);
+      // Create a temporary inspection ID for immediate response
+      const tempInspectionId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-      if (result.success) {
-        const response: ApiResponse = {
-          success: true,
-          message: "Extension data processed successfully",
-          inspectionId: result.inspectionId!,
-          status: "processing",
-        };
+      // Run extension processing in background
+      const backgroundTask = async () => {
+        try {
+          const result = await processExtensionData(vehicleData);
+          if (!result.success) {
+            console.error(`Extension processing failed: ${result.error}`);
+          }
+        } catch (error) {
+          console.error("Background extension processing error:", error);
+        }
+      };
 
-        return new Response(JSON.stringify(response), {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+        EdgeRuntime.waitUntil(backgroundTask());
       } else {
-        const errorResponse: ErrorResponse = {
-          error: result.error || "Failed to process extension data",
-        };
-        return new Response(JSON.stringify(errorResponse), {
-          status: 500,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
+        backgroundTask().catch((err) => console.error(err));
       }
+
+      // Return immediate response
+      const response: ApiResponse = {
+        success: true,
+        message: "Extension data processing started in background",
+        inspectionId: tempInspectionId,
+        status: "processing",
+      };
+
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
     } else {
       // Invalid payload format
       const errorResponse: ErrorResponse = {
