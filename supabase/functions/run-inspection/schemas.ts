@@ -64,6 +64,27 @@ export interface WebhookPayload {
   inspection_id: string;
 }
 
+export interface ExtensionVehicleData {
+  description: string;
+  gallery_images: string[];
+  listing_url: string;
+  make: string;
+  mileage: string;
+  model: string;
+  price: string;
+  scraped_at: string;
+  seller_name: string;
+  seller_phone: string;
+  thumbnail_url: string;
+  vin: string;
+  year: number;
+  email?: string; // User email for the inspection
+}
+
+export interface ExtensionPayload {
+  vehicleData: ExtensionVehicleData;
+}
+
 export interface ApiResponse {
   success: boolean;
   message: string;
@@ -73,4 +94,19 @@ export interface ApiResponse {
 
 export interface ErrorResponse {
   error: string;
+}
+
+export interface ImageCategorizationResult {
+  category: 'exterior' | 'interior' | 'dashboard' | 'engine' | 'undercarriage';
+  confidence: number;
+  reasoning: string;
+}
+
+export interface UploadResult {
+  success: boolean;
+  originalUrl: string;
+  supabaseUrl?: string;
+  filename?: string;
+  category?: string;
+  error?: string;
 }
