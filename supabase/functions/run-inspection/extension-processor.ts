@@ -76,12 +76,12 @@ export async function processExtensionData(vehicleData: ExtensionVehicleData): P
       }
     };
 
-    if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
-      EdgeRuntime.waitUntil(backgroundTask());
-    } else {
-      // Fallback for local development
-      backgroundTask().catch((err) => console.error(err));
-    }
+    // if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
+    //   EdgeRuntime.waitUntil(backgroundTask());
+    // } else {
+    //   // Fallback for local development
+    //   backgroundTask().catch((err) => console.error(err));
+    // }
 
     return {
       success: true,
