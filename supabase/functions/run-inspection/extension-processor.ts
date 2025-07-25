@@ -106,6 +106,7 @@ async function createInspectionFromVehicleData(vehicleData: ExtensionVehicleData
     // Extract relevant data for inspection
     const inspectionData = {
       email: vehicleData.email || "extension@copart.com", // Default email if not provided
+      user_id: vehicleData.user_id || null, // Optional user ID
       vin: vehicleData.vin,
       mileage: vehicleData.mileage,
       status: "pending",

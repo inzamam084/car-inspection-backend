@@ -79,6 +79,7 @@ export interface ExtensionVehicleData {
   vin: string;
   year: number;
   email?: string; // User email for the inspection
+  user_id?: string; // Optional user ID for tracking
 }
 
 export interface ExtensionPayload {
