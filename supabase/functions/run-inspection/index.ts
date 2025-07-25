@@ -25,8 +25,7 @@ serve(async (req): Promise<Response> => {
     console.log(
       `Content-Length: ${contentLength}, Content-Type: ${contentType}`
     );
-    const test = await req.text();
-    console.log("Raw request body:", test);
+
     if (!contentLength || contentLength === "0") {
       console.error("Request body is empty");
       const errorResponse: ErrorResponse = {
