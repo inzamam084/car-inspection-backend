@@ -105,8 +105,11 @@ When extension data is received, the system:
 
 ## Example Usage
 
-### JavaScript/Browser Extension
+### Browser Extension Background Script
+**Important**: The API request should be made from the background script of your browser extension, not from content scripts, to avoid CORS issues and ensure proper authentication.
+
 ```javascript
+// background.js or service-worker.js
 const vehicleData = {
   description: "Copart vehicle - 13 images extracted",
   gallery_images: [
@@ -125,6 +128,7 @@ const vehicleData = {
   email: "user@example.com"
 };
 
+// Make the API call from background script
 const response = await fetch('https://your-supabase-url.supabase.co/functions/v1/run-inspection', {
   method: 'POST',
   headers: {
@@ -136,6 +140,54 @@ const response = await fetch('https://your-supabase-url.supabase.co/functions/v1
 
 const result = await response.json();
 console.log('Inspection created:', result.inspectionId);
+
+// Optionally notify content script or popup about the result
+chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+  chrome.tabs.sendMessage(tabs[0].id, {
+    action: 'inspectionCreated',
+    inspectionId: result.inspectionId,
+    status: result.status
+  });
+});
+```
+
+### Content Script Integration
+If you need to trigger the inspection from a content script, send a message to the background script:
+
+```javascript
+// content-script.js
+function sendVehicleDataToBackground(vehicleData) {
+  chrome.runtime.sendMessage({
+    action: 'createInspection',
+    vehicleData: vehicleData
+  }, function(response) {
+    console.log('Inspection request sent:', response);
+  });
+}
+
+// background.js - handle messages from content script
+chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+  if (request.action === 'createInspection') {
+    // Make the API call here
+    fetch('https://your-supabase-url.supabase.co/functions/v1/run-inspection', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer YOUR_SUPABASE_ANON_KEY'
+      },
+      body: JSON.stringify({ vehicleData: request.vehicleData })
+    })
+    .then(response => response.json())
+    .then(result => {
+      sendResponse({ success: true, result: result });
+    })
+    .catch(error => {
+      sendResponse({ success: false, error: error.message });
+    });
+    
+    return true; // Keep message channel open for async response
+  }
+});
 ```
 
 ### cURL Example
