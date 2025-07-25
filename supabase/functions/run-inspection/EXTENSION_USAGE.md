@@ -11,8 +11,9 @@ The `run-inspection` function now supports two types of data input:
 
 ## Extension Data Format
 
-The extension should send data in the following format:
+The extension can send data in two formats:
 
+### Format 1: Wrapped Format (Recommended)
 ```json
 {
   "vehicleData": {
@@ -37,6 +38,32 @@ The extension should send data in the following format:
   }
 }
 ```
+
+### Format 2: Direct Format (Backward Compatibility)
+```json
+{
+  "description": "Copart vehicle - 13 images extracted",
+  "gallery_images": [
+    "https://cs.copart.com/v1/AUTH_svc.pdoc00001/ids-c-prod-lpp/0725/0034d2f57df440a6b1823beee162d80a_ful.jpg",
+    "https://cs.copart.com/v1/AUTH_svc.pdoc00001/ids-c-prod-lpp/0725/169b5042a72a41c18c3469701ac055ed_ful.jpg",
+    // ... more image URLs
+  ],
+  "listing_url": "https://www.copart.com/lot/62947865/clean-title-2016-bmw-x1-xdrive28i-nb-moncton",
+  "make": "BMW",
+  "mileage": "0",
+  "model": "X1 XDRIVE28I",
+  "price": "0",
+  "scraped_at": "2025-07-25T04:35:27.242Z",
+  "seller_name": "Copart",
+  "seller_phone": "",
+  "thumbnail_url": "",
+  "vin": "LOT-62947865",
+  "year": 2016,
+  "email": "user@example.com" // Optional: user email for the inspection
+}
+```
+
+**Note**: The API automatically detects which format is being used. The wrapped format is recommended for new implementations, while the direct format is supported for backward compatibility.
 
 ## API Endpoint
 

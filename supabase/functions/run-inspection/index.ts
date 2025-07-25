@@ -8,6 +8,7 @@ import { processExtensionData } from "./extension-processor.ts";
 import type {
   WebhookPayload,
   ExtensionPayload,
+  ExtensionVehicleData,
   ApiResponse,
   ErrorResponse,
   Inspection,
@@ -165,11 +166,48 @@ serve(async (req): Promise<Response> => {
           "Content-Type": "application/json",
         },
       });
+    } else if (
+      "gallery_images" in payload &&
+      "make" in payload &&
+      "model" in payload &&
+      "year" in payload
+    ) {
+      // Handle extension data (direct format - for backward compatibility)
+      console.log("Processing extension vehicle data (direct format)");
+      const vehicleData = payload as ExtensionVehicleData;
+
+      const result = await processExtensionData(vehicleData);
+
+      if (result.success) {
+        const response: ApiResponse = {
+          success: true,
+          message: "Extension data processed successfully",
+          inspectionId: result.inspectionId!,
+          status: "processing",
+        };
+
+        return new Response(JSON.stringify(response), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+      } else {
+        const errorResponse: ErrorResponse = {
+          error: result.error || "Failed to process extension data",
+        };
+        return new Response(JSON.stringify(errorResponse), {
+          status: 500,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+      }
     } else {
       // Invalid payload format
       const errorResponse: ErrorResponse = {
         error:
-          "Invalid payload format. Expected either 'vehicleData' or 'inspection_id'",
+          "Invalid payload format. Expected either 'vehicleData', 'inspection_id', or direct vehicle data with required fields (gallery_images, make, model, year)",
       };
       return new Response(JSON.stringify(errorResponse), {
         status: 400,
