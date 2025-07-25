@@ -1,8 +1,17 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { supabase } from "./config.ts";
-import { runAnalysisInBackground, runScrapeThenAnalysis } from "./run-inspection-processor.ts";
+import {
+  runAnalysisInBackground,
+  runScrapeThenAnalysis,
+} from "./run-inspection-processor.ts";
 import { processExtensionData } from "./extension-processor.ts";
-import type { WebhookPayload, ExtensionPayload, ApiResponse, ErrorResponse, Inspection } from "./schemas.ts";
+import type {
+  WebhookPayload,
+  ExtensionPayload,
+  ApiResponse,
+  ErrorResponse,
+  Inspection,
+} from "./schemas.ts";
 
 // Main serve function
 serve(async (req): Promise<Response> => {
@@ -10,21 +19,24 @@ serve(async (req): Promise<Response> => {
     console.log("Request received..");
 
     // Check if request has a body
-    const contentLength = req.headers.get('content-length');
-    const contentType = req.headers.get('content-type');
-    
-    console.log(`Content-Length: ${contentLength}, Content-Type: ${contentType}`);
+    const contentLength = req.headers.get("content-length");
+    const contentType = req.headers.get("content-type");
 
-    if (!contentLength || contentLength === '0') {
+    console.log(
+      `Content-Length: ${contentLength}, Content-Type: ${contentType}`
+    );
+    const test = await req.text();
+    console.log("Raw request body:", test);
+    if (!contentLength || contentLength === "0") {
       console.error("Request body is empty");
       const errorResponse: ErrorResponse = {
-        error: "Request body is required"
+        error: "Request body is required",
       };
       return new Response(JSON.stringify(errorResponse), {
         status: 400,
         headers: {
-          "Content-Type": "application/json"
-        }
+          "Content-Type": "application/json",
+        },
       });
     }
 
@@ -33,74 +45,74 @@ serve(async (req): Promise<Response> => {
     try {
       const requestText = await req.text();
       console.log("Raw request body:", requestText);
-      
+
       if (!requestText.trim()) {
         throw new Error("Empty request body");
       }
-      
+
       payload = JSON.parse(requestText);
     } catch (parseError) {
       console.error("JSON parsing error:", parseError);
       const errorResponse: ErrorResponse = {
-        error: "Invalid JSON in request body"
+        error: "Invalid JSON in request body",
       };
       return new Response(JSON.stringify(errorResponse), {
         status: 400,
         headers: {
-          "Content-Type": "application/json"
-        }
+          "Content-Type": "application/json",
+        },
       });
     }
 
     console.log("Received payload:", JSON.stringify(payload));
 
     // Check if this is extension data (has vehicleData) or webhook data (has inspection_id)
-    if ('vehicleData' in payload) {
+    if ("vehicleData" in payload) {
       // Handle extension data
       console.log("Processing extension vehicle data");
       const extensionPayload = payload as ExtensionPayload;
-      
+
       const result = await processExtensionData(extensionPayload.vehicleData);
-      
+
       if (result.success) {
         const response: ApiResponse = {
           success: true,
           message: "Extension data processed successfully",
           inspectionId: result.inspectionId!,
-          status: "processing"
+          status: "processing",
         };
-        
+
         return new Response(JSON.stringify(response), {
           status: 200,
           headers: {
-            "Content-Type": "application/json"
-          }
+            "Content-Type": "application/json",
+          },
         });
       } else {
         const errorResponse: ErrorResponse = {
-          error: result.error || "Failed to process extension data"
+          error: result.error || "Failed to process extension data",
         };
         return new Response(JSON.stringify(errorResponse), {
           status: 500,
           headers: {
-            "Content-Type": "application/json"
-          }
+            "Content-Type": "application/json",
+          },
         });
       }
-    } else if ('inspection_id' in payload) {
+    } else if ("inspection_id" in payload) {
       // Handle webhook data (existing logic)
       const webhookPayload = payload as WebhookPayload;
-      
+
       if (!webhookPayload.inspection_id) {
         console.error("Missing inspection_id in payload");
         const errorResponse: ErrorResponse = {
-          error: "inspection_id is required in request payload"
+          error: "inspection_id is required in request payload",
         };
         return new Response(JSON.stringify(errorResponse), {
           status: 400,
           headers: {
-            "Content-Type": "application/json"
-          }
+            "Content-Type": "application/json",
+          },
         });
       }
 
@@ -117,23 +129,24 @@ serve(async (req): Promise<Response> => {
       if (inspectionError) {
         console.error("Error fetching inspection:", inspectionError);
         const errorResponse: ErrorResponse = {
-          error: "Failed to fetch inspection details"
+          error: "Failed to fetch inspection details",
         };
         return new Response(JSON.stringify(errorResponse), {
           status: 500,
           headers: {
-            "Content-Type": "application/json"
-          }
+            "Content-Type": "application/json",
+          },
         });
       }
 
       // Decide which pipeline to invoke
-      const backgroundTask = inspection.type === 'url' 
-        ? () => runScrapeThenAnalysis(inspection as Inspection)
-        : () => runAnalysisInBackground(inspection.id);
+      const backgroundTask =
+        inspection.type === "url"
+          ? () => runScrapeThenAnalysis(inspection as Inspection)
+          : () => runAnalysisInBackground(inspection.id);
 
       // Kick off in background
-      if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
         EdgeRuntime.waitUntil(backgroundTask());
       } else {
         backgroundTask().catch((err) => console.error(err));
@@ -144,38 +157,38 @@ serve(async (req): Promise<Response> => {
         success: true,
         message: "Analysis started in background",
         inspectionId,
-        status: "processing"
+        status: "processing",
       };
 
       return new Response(JSON.stringify(response), {
         status: 200,
         headers: {
-          "Content-Type": "application/json"
-        }
+          "Content-Type": "application/json",
+        },
       });
     } else {
       // Invalid payload format
       const errorResponse: ErrorResponse = {
-        error: "Invalid payload format. Expected either 'vehicleData' or 'inspection_id'"
+        error:
+          "Invalid payload format. Expected either 'vehicleData' or 'inspection_id'",
       };
       return new Response(JSON.stringify(errorResponse), {
         status: 400,
         headers: {
-          "Content-Type": "application/json"
-        }
+          "Content-Type": "application/json",
+        },
       });
     }
-
   } catch (error) {
     console.error("Unexpected error:", error);
     const errorResponse: ErrorResponse = {
-      error: "Internal server error"
+      error: "Internal server error",
     };
     return new Response(JSON.stringify(errorResponse), {
       status: 500,
       headers: {
-        "Content-Type": "application/json"
-      }
+        "Content-Type": "application/json",
+      },
     });
   }
 });
