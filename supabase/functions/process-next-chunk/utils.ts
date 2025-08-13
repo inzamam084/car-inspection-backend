@@ -93,6 +93,41 @@ export function buildGeminiRequestBodyRest(
 }
 
 /**
+ * Validate Gemini API key by making a simple API call
+ */
+export async function validateGeminiApiKey(): Promise<boolean> {
+  try {
+    if (!GEMINI_CONFIG.apiKey) {
+      console.error("❌ GEMINI_API_KEY environment variable is not set");
+      return false;
+    }
+
+    // Test API key with a simple models list request
+    const testResponse = await fetch(
+      `${GEMINI_CONFIG.baseUrl}/v1beta/models`,
+      {
+        method: "GET",
+        headers: {
+          "x-goog-api-key": GEMINI_CONFIG.apiKey,
+        },
+      }
+    );
+
+    if (!testResponse.ok) {
+      const errorText = await testResponse.text();
+      console.error(`❌ Gemini API key validation failed: ${testResponse.status} ${testResponse.statusText} - ${errorText}`);
+      return false;
+    }
+
+    console.log("✅ Gemini API key is valid");
+    return true;
+  } catch (error) {
+    console.error("❌ Error validating Gemini API key:", error);
+    return false;
+  }
+}
+
+/**
  * Upload single image to Gemini Files API
  */
 export async function uploadImageToGeminiRest(
@@ -101,7 +136,13 @@ export async function uploadImageToGeminiRest(
   imageId: string
 ): Promise<FileReference | null> {
   try {
+    // Validate API key first
+    if (!GEMINI_CONFIG.apiKey) {
+      throw new Error("GEMINI_API_KEY environment variable is not set");
+    }
+
     // Step 1: Fetch image from Supabase public URL
+    console.log(`📥 Fetching image from: ${imageUrl}`);
     const imageResponse = await fetch(imageUrl);
     if (!imageResponse.ok) {
       throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
@@ -112,11 +153,13 @@ export async function uploadImageToGeminiRest(
     const mimeType = imageBlob.type || "image/jpeg";
     const displayName = `${category}_${imageId}_${Date.now()}`;
 
+    console.log(`📤 Uploading image: ${displayName} (${imageBytes.byteLength} bytes, ${mimeType})`);
+
     // Step 2: Initial resumable upload request
     const initResponse = await fetch(GEMINI_CONFIG.uploadUrl, {
       method: "POST",
       headers: {
-        "X-Goog-Api-Key": GEMINI_CONFIG.apiKey,
+        "x-goog-api-key": GEMINI_CONFIG.apiKey,
         "X-Goog-Upload-Protocol": "resumable",
         "X-Goog-Upload-Command": "start",
         "X-Goog-Upload-Header-Content-Length": imageBytes.byteLength.toString(),
@@ -131,20 +174,31 @@ export async function uploadImageToGeminiRest(
     });
 
     if (!initResponse.ok) {
-      throw new Error(`Upload init failed: ${initResponse.statusText}`);
+      const errorText = await initResponse.text();
+      console.error(`❌ Upload init failed for ${displayName}:`, {
+        status: initResponse.status,
+        statusText: initResponse.statusText,
+        error: errorText,
+        apiKeyPresent: !!GEMINI_CONFIG.apiKey,
+        apiKeyLength: GEMINI_CONFIG.apiKey?.length || 0,
+      });
+      throw new Error(`Upload init failed: ${initResponse.status} ${initResponse.statusText} - ${errorText}`);
     }
 
     // Step 3: Get upload URL from response headers
-    const uploadUrl = initResponse.headers.get("X-Goog-Upload-Url");
+    const uploadUrl = initResponse.headers.get("x-goog-upload-url");
     if (!uploadUrl) {
+      console.error(`❌ No upload URL received for ${displayName}`);
       throw new Error("No upload URL received");
     }
+
+    console.log(`🔗 Got upload URL for ${displayName}`);
 
     // Step 4: Upload the actual file bytes
     const uploadResponse = await fetch(uploadUrl, {
       method: "POST",
       headers: {
-        "X-Goog-Api-Key": GEMINI_CONFIG.apiKey,
+        "x-goog-api-key": GEMINI_CONFIG.apiKey,
         "Content-Length": imageBytes.byteLength.toString(),
         "X-Goog-Upload-Offset": "0",
         "X-Goog-Upload-Command": "upload, finalize",
@@ -153,10 +207,17 @@ export async function uploadImageToGeminiRest(
     });
 
     if (!uploadResponse.ok) {
-      throw new Error(`File upload failed: ${uploadResponse.statusText}`);
+      const errorText = await uploadResponse.text();
+      console.error(`❌ File upload failed for ${displayName}:`, {
+        status: uploadResponse.status,
+        statusText: uploadResponse.statusText,
+        error: errorText,
+      });
+      throw new Error(`File upload failed: ${uploadResponse.status} ${uploadResponse.statusText} - ${errorText}`);
     }
 
     const uploadResult = await uploadResponse.json();
+    console.log(`✅ Successfully uploaded ${displayName} to Gemini`);
 
     return {
       uri: uploadResult.file.uri,
@@ -166,7 +227,7 @@ export async function uploadImageToGeminiRest(
       displayName: displayName,
     };
   } catch (error) {
-    console.error(`Failed to upload image ${imageUrl}:`, error);
+    console.error(`❌ Failed to upload image ${imageUrl}:`, error);
     return null;
   }
 }
