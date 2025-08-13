@@ -170,7 +170,8 @@ export class ImageProcessor {
 
   private async categorizeImage(imageBuffer: Uint8Array): Promise<ImageCategorizationResult> {
     try {
-      const base64Image = btoa(String.fromCharCode(...imageBuffer));
+      // Convert image buffer to base64 efficiently to avoid stack overflow
+      const base64Image = this.arrayBufferToBase64(imageBuffer);
 
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -302,6 +303,19 @@ Be precise and choose the most specific category that matches the primary focus 
       console.error("Unexpected error saving to database:", error);
       return { success: false, error: (error as Error).message };
     }
+  }
+
+  private arrayBufferToBase64(buffer: Uint8Array): string {
+    // Convert Uint8Array to base64 efficiently without causing stack overflow
+    let binary = '';
+    const chunkSize = 8192; // Process in chunks to avoid stack overflow
+    
+    for (let i = 0; i < buffer.length; i += chunkSize) {
+      const chunk = buffer.slice(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, Array.from(chunk));
+    }
+    
+    return btoa(binary);
   }
 
   private async delay(min: number, max: number): Promise<void> {

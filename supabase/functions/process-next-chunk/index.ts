@@ -695,66 +695,6 @@ function buildGeminiContentRest(
   };
 }
 
-// Call Gemini API for analysis
-async function callGeminiAnalysisRest(
-  contents: any,
-  schema: any
-): Promise<{ result: any; usage: GeminiUsage }> {
-  try {
-    const requestBody = {
-      ...contents,
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: schema,
-        temperature: 0.1,
-      },
-    };
-
-    const response = await fetch(
-      `${GEMINI_CONFIG.baseUrl}/v1beta/models/${GEMINI_CONFIG.model}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "X-Goog-Api-Key": GEMINI_CONFIG.apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini API error ${response.status}: ${errorText}`);
-    }
-
-    const responseData = await response.json();
-
-    if (!responseData.candidates || responseData.candidates.length === 0) {
-      throw new Error("No candidates in Gemini response");
-    }
-
-    const candidate = responseData.candidates[0];
-    if (
-      !candidate.content ||
-      !candidate.content.parts ||
-      candidate.content.parts.length === 0
-    ) {
-      throw new Error("No content in Gemini response");
-    }
-
-    const resultText = candidate.content.parts[0].text;
-    const parsedResult = JSON.parse(resultText);
-
-    return {
-      result: parsedResult,
-      usage: responseData.usageMetadata || {},
-    };
-  } catch (error) {
-    console.error("Gemini API call failed:", error);
-    throw error;
-  }
-}
-
 /*********************************************************************/
 /* 1️⃣  NEW helper – returns the *full* Gemini request body           */
 /*********************************************************************/
@@ -930,35 +870,6 @@ async function batchUploadSupabaseImagesRest(
   }
 
   return uploadedFiles;
-}
-
-// Cleanup uploaded files from Gemini
-async function cleanupGeminiFilesRest(fileUris: string[]): Promise<void> {
-  for (const uri of fileUris) {
-    try {
-      // Extract file ID from URI (format: files/file_id)
-      const fileId = uri.split("/").pop();
-      if (!fileId) continue;
-
-      const deleteResponse = await fetch(
-        `${GEMINI_CONFIG.baseUrl}/v1beta/files/${fileId}`,
-        {
-          method: "DELETE",
-          headers: {
-            "X-Goog-Api-Key": GEMINI_CONFIG.apiKey,
-          },
-        }
-      );
-
-      if (!deleteResponse.ok) {
-        console.warn(
-          `Failed to delete file ${fileId}: ${deleteResponse.statusText}`
-        );
-      }
-    } catch (error) {
-      console.warn(`Error deleting file ${uri}:`, error);
-    }
-  }
 }
 
 // Send data to Dify Workflow API

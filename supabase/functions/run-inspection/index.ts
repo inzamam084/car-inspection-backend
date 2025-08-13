@@ -73,12 +73,16 @@ serve(async (req): Promise<Response> => {
       const extensionPayload = payload as ExtensionPayload;
 
       // Create a temporary inspection ID for immediate response
-      const tempInspectionId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const tempInspectionId = `temp-${Date.now()}-${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
 
       // Run extension processing in background
       const backgroundTask = async () => {
         try {
-          const result = await processExtensionData(extensionPayload.vehicleData);
+          const result = await processExtensionData(
+            extensionPayload.vehicleData
+          );
           if (!result.success) {
             console.error(`Extension processing failed: ${result.error}`);
           }
@@ -185,7 +189,9 @@ serve(async (req): Promise<Response> => {
       const vehicleData = payload as ExtensionVehicleData;
 
       // Create a temporary inspection ID for immediate response
-      const tempInspectionId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const tempInspectionId = `temp-${Date.now()}-${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
 
       // Run extension processing in background
       const backgroundTask = async () => {
