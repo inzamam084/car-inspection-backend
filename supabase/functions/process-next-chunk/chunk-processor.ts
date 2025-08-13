@@ -12,6 +12,7 @@ import {
   batchUploadSupabaseImagesRest,
   buildGeminiRequestBodyRest,
   updateInspectionWorkflowId,
+  validateGeminiApiKey,
 } from "./utils.ts";
 import type {
   FileReference,
@@ -260,6 +261,12 @@ export async function processGeminiAnalysisRest(
 
   try {
     console.log(`Starting Gemini analysis for inspection ${inspectionId}`);
+
+    // Validate Gemini API key first
+    const isApiKeyValid = await validateGeminiApiKey();
+    if (!isApiKeyValid) {
+      throw new Error("Gemini API key validation failed. Please check your GEMINI_API_KEY environment variable.");
+    }
 
     // Get inspection data from database
     const inspectionData = await getInspectionData(inspectionId);
