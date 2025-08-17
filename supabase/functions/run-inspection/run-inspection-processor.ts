@@ -1,5 +1,6 @@
 import { APP_BASE_URL, SUPABASE_CONFIG } from "./config.ts";
 import { createDatabaseService } from "../shared/database-service.ts";
+import { categorizeImages } from "./image-categorization-service.ts";
 import type { Inspection, ProcessingJob, ChunkImage } from "./schemas.ts";
 
 // Initialize optimized database service
@@ -7,7 +8,7 @@ const dbService = createDatabaseService();
 
 // Background analysis function
 export async function runAnalysisInBackground(
-  inspectionId: string,
+  inspectionId: string
 ): Promise<void> {
   try {
     console.log(`Starting background analysis for inspection ${inspectionId}`);
@@ -16,8 +17,8 @@ export async function runAnalysisInBackground(
     await dbService.updateInspectionStatus(inspectionId, "processing");
 
     // Batch fetch all inspection data in a single query
-    const { data: inspectionData, error: inspectionError } = await dbService
-      .batchFetchInspectionData(inspectionId);
+    const { data: inspectionData, error: inspectionError } =
+      await dbService.batchFetchInspectionData(inspectionId);
 
     if (inspectionError || !inspectionData) {
       console.error("Error fetching inspection data:", inspectionError);
@@ -26,7 +27,7 @@ export async function runAnalysisInBackground(
     }
 
     // Extract data from the batched result
-    const photos = inspectionData.photos || [];
+    var photos = inspectionData.photos || [];
     const obd2_codes = inspectionData.obd2_codes || [];
     const titleImages = inspectionData.title_images || [];
 
@@ -39,23 +40,41 @@ export async function runAnalysisInBackground(
     // Update status to analyzing
     await dbService.updateInspectionStatus(inspectionId, "analyzing");
 
+    // Categorize images using Dify API (only for non-URL inspections)
+    if (inspectionData.type !== "url" && photos.length > 0) {
+      console.log(`Starting image categorization for ${photos.length} photos`);
+      try {
+        await categorizeImages(photos);
+        console.log("Image categorization completed successfully");
+      } catch (error) {
+        console.error("Image categorization failed:", error);
+        // Continue with the process even if categorization fails
+      }
+    }
+
+    // Batch fetch all inspection data in a single query
+    const { data: updatedInspectionData } =
+      await dbService.batchFetchInspectionData(inspectionId);
+
+    photos = updatedInspectionData.photos || [];
+
     // Calculate total image size for logging
     const photosSize = photos.reduce(
       (sum, photo) => sum + (parseInt(photo.storage) || 0),
-      0,
+      0
     );
     const obd2ImagesSize = obd2_codes.reduce(
       (sum, obd) => sum + (parseInt(obd.storage) || 0),
-      0,
+      0
     );
     const titleImagesSize = titleImages.reduce(
       (sum, img) => sum + (parseInt(img.storage) || 0),
-      0,
+      0
     );
     const totalImageSize = photosSize + obd2ImagesSize + titleImagesSize;
 
     console.log(
-      `Total image size: ${(totalImageSize / (1024 * 1024)).toFixed(2)} MB`,
+      `Total image size: ${(totalImageSize / (1024 * 1024)).toFixed(2)} MB`
     );
 
     // Use simplified queue-based processing with single analysis job
@@ -70,30 +89,32 @@ export async function runAnalysisInBackground(
     // Transform all images to ChunkImage format
     const allImages: ChunkImage[] = [
       // Transform photos
-      ...photos.map(photo => ({
+      ...photos.map((photo) => ({
         id: photo.id,
         path: photo.converted_path || photo.path,
         category: photo.category,
         storage: parseInt(photo.storage) || 0,
-        type: 'photo' as const,
+        type: "photo" as const,
       })),
       // Transform OBD2 codes with images
-      ...obd2_codes.filter(obd => obd.screenshot_path).map(obd => ({
-        id: obd.id,
-        path: obd.converted_path || obd.screenshot_path!,
-        category: 'obd',
-        storage: parseInt(obd.storage) || 0,
-        type: 'obd2_image' as const,
-        code: obd.code,
-        description: obd.description,
-      })),
+      ...obd2_codes
+        .filter((obd) => obd.screenshot_path)
+        .map((obd) => ({
+          id: obd.id,
+          path: obd.converted_path || obd.screenshot_path!,
+          category: "obd",
+          storage: parseInt(obd.storage) || 0,
+          type: "obd2_image" as const,
+          code: obd.code,
+          description: obd.description,
+        })),
       // Transform title images
-      ...titleImages.map(title => ({
+      ...titleImages.map((title) => ({
         id: title.id,
         path: title.converted_path || title.path,
-        category: 'title',
+        category: "title",
         storage: parseInt(title.storage) || 0,
-        type: 'title_image' as const,
+        type: "title_image" as const,
       })),
     ];
 
@@ -143,7 +164,7 @@ export async function runAnalysisInBackground(
 
     // Insert all jobs into the queue using batch operation
     const { error: jobsError } = await dbService.batchCreateProcessingJobs(
-      jobs,
+      jobs
     );
 
     if (jobsError) {
@@ -153,7 +174,7 @@ export async function runAnalysisInBackground(
     }
 
     console.log(
-      `Created ${jobs.length} processing jobs for inspection ${inspectionId}`,
+      `Created ${jobs.length} processing jobs for inspection ${inspectionId}`
     );
 
     // Trigger the first chunk processing
@@ -163,13 +184,13 @@ export async function runAnalysisInBackground(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+          Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
         },
         body: JSON.stringify({
           inspection_id: inspectionId,
           completed_sequence: 0,
         }),
-      },
+      }
     );
 
     if (!triggerResponse.ok) {
@@ -179,20 +200,20 @@ export async function runAnalysisInBackground(
     }
 
     console.log(
-      `Successfully triggered queue-based processing for inspection ${inspectionId}`,
+      `Successfully triggered queue-based processing for inspection ${inspectionId}`
     );
     return;
   } catch (error) {
     console.error(
       `Background analysis failed for inspection ${inspectionId}:`,
-      error,
+      error
     );
     await dbService.updateInspectionStatus(inspectionId, "failed");
   }
 }
 // Helper that chains scrape → analysis
 export async function runScrapeThenAnalysis(
-  inspection: Inspection,
+  inspection: Inspection
 ): Promise<void> {
   try {
     console.log(`Starting scrape for inspection ${inspection.id}`);
@@ -215,7 +236,7 @@ export async function runScrapeThenAnalysis(
     }
 
     console.log(
-      `Scrape succeeded for inspection ${inspection.id}, starting analysis`,
+      `Scrape succeeded for inspection ${inspection.id}, starting analysis`
     );
     await runAnalysisInBackground(inspection.id);
   } catch (err) {

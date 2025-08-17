@@ -98,9 +98,50 @@ export interface ErrorResponse {
 }
 
 export interface ImageCategorizationResult {
-  category: 'exterior' | 'interior' | 'dashboard' | 'engine' | 'undercarriage';
+  category: 'exterior' | 'interior' | 'dashboard' | 'engine' | 'undercarriage' | 'paint' | 'rust' | 'obd' | 'title' | 'records';
   confidence: number;
   reasoning: string;
+}
+
+export interface DifyApiRequest {
+  inputs: {
+    query: string;
+  };
+  response_mode: "blocking";
+  user: string;
+  files: Array<{
+    type: "image";
+    transfer_method: "remote_url";
+    url: string;
+  }>;
+}
+
+export interface DifyApiResponse {
+  event: string;
+  task_id: string;
+  id: string;
+  message_id: string;
+  mode: string;
+  answer: string;
+  metadata: {
+    annotation_reply: null;
+    retriever_resources: any[];
+    usage: {
+      prompt_tokens: number;
+      prompt_unit_price: string;
+      prompt_price_unit: string;
+      prompt_price: string;
+      completion_tokens: number;
+      completion_unit_price: string;
+      completion_price_unit: string;
+      completion_price: string;
+      total_tokens: number;
+      total_price: string;
+      currency: string;
+      latency: number;
+    };
+  };
+  created_at: number;
 }
 
 export interface UploadResult {
