@@ -39,3 +39,9 @@ export const SUPABASE_CONFIG = {
   url: supabaseUrl,
   serviceKey: supabaseServiceKey
 };
+
+// Dify API configuration for image categorization
+export const DIFY_API_CONFIG = {
+  url: "https://api.dify.ai/v1/completion-messages",
+  apiKey: Deno.env.get("DIFY_API_KEY") || ""
+};
