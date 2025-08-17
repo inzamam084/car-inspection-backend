@@ -19,10 +19,10 @@ export async function categorizeImage(
   try {
     console.log(`Categorizing image: ${imageUrl}`);
 
-    if (!DIFY_API_CONFIG.apiKey) {
-      console.error("DIFY_API_KEY is not configured");
-      return null;
-    }
+    // if (!DIFY_API_CONFIG.apiKey) {
+    //   console.error("DIFY_API_KEY is not configured");
+    //   return null;
+    // }
 
     const requestBody: DifyApiRequest = {
       inputs: {
