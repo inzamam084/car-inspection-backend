@@ -1,5 +1,5 @@
-import { openai, supabase } from "./config.ts";
-import type { ImageCategorizationResult, UploadResult } from "./schemas.ts";
+import { supabase } from "./config.ts";
+import type { UploadResult } from "./schemas.ts";
 
 export class ImageProcessor {
   private userAgents: string[];
@@ -39,14 +39,8 @@ export class ImageProcessor {
           console.log(`[${globalIndex}/${imageUrls.length}] 📥 Downloading: ${url.split("/").pop()}`);
           const imageBuffer = await this.downloadImageWithRetry(url, 3);
 
-          console.log(`[${globalIndex}/${imageUrls.length}] 🤖 Categorizing with AI...`);
-          const categorization = await this.categorizeImage(imageBuffer);
-
-          console.log(
-            `[${globalIndex}/${imageUrls.length}] 🏷️ Categorized as: ${categorization.category} (${(categorization.confidence * 100).toFixed(1)}% confidence)`
-          );
-
-          const filename = this.generateCategorizedFilename(url, lotId, categorization.category);
+          // Generate filename with default category - will be categorized later by categorizeImages()
+          const filename = this.generateCategorizedFilename(url, lotId, "uncategorized");
 
           console.log(`[${globalIndex}/${imageUrls.length}] 📤 Uploading as: ${filename}`);
 
@@ -55,7 +49,7 @@ export class ImageProcessor {
           if (uploadResult.success && uploadResult.url) {
             const dbResult = await this.saveToDatabase(
               inspectionId,
-              categorization.category,
+              "uncategorized",
               uploadResult.url,
               imageBuffer.length
             );
@@ -66,14 +60,14 @@ export class ImageProcessor {
                 originalUrl: url,
                 supabaseUrl: uploadResult.url,
                 filename: filename,
-                category: categorization.category,
+                category: "uncategorized",
               });
             } else {
               results.push({
                 success: false,
                 originalUrl: url,
                 error: `Database save failed: ${dbResult.error}`,
-                category: categorization.category,
+                category: "uncategorized",
               });
             }
           } else {
@@ -81,7 +75,7 @@ export class ImageProcessor {
               success: false,
               originalUrl: url,
               error: uploadResult.error,
-              category: categorization.category,
+              category: "uncategorized",
             });
           }
 
@@ -168,80 +162,6 @@ export class ImageProcessor {
     }
   }
 
-  private async categorizeImage(imageBuffer: Uint8Array): Promise<ImageCategorizationResult> {
-    try {
-      // Convert image buffer to base64 efficiently to avoid stack overflow
-      const base64Image = this.arrayBufferToBase64(imageBuffer);
-
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `Analyze this vehicle image and categorize it into one of these specific categories:
-
-**exterior**: Outside views of the vehicle including body panels, doors, bumpers, fenders, paint condition, wheels, tires, headlights, taillights, mirrors, overall vehicle exterior shots
-
-**interior**: Inside cabin views including seats, upholstery, fabric, leather condition, floor mats, carpeting, interior trim, door panels, cabin space, passenger areas
-
-**dashboard**: Dashboard and control area including instrument cluster, gauges, speedometer, steering wheel and controls, center console, radio, climate controls, dashboard condition and electronics, driver's control interface
-
-**engine**: Engine bay and mechanical components including engine block, motor components, belts, hoses, fluid reservoirs, battery, air filter, engine bay condition, mechanical parts under the hood
-
-**undercarriage**: Underneath vehicle views including chassis, frame condition, suspension components, exhaust system, underside structural elements
-
-Respond with a JSON object containing:
-- category: one of the categories above
-- confidence: a number between 0.0 and 1.0
-- reasoning: brief explanation of why this category was chosen
-
-Be precise and choose the most specific category that matches the primary focus of the image.`
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:image/jpeg;base64,${base64Image}`
-                }
-              }
-            ]
-          }
-        ],
-        max_tokens: 300,
-        temperature: 0.1
-      });
-
-      const content = response.choices[0]?.message?.content;
-      if (!content) {
-        throw new Error("No response from OpenAI");
-      }
-
-      // Extract JSON from the response
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error("No JSON found in response");
-      }
-
-      const categorization = JSON.parse(jsonMatch[0]) as ImageCategorizationResult;
-
-      if (!categorization.category || !categorization.confidence || !categorization.reasoning) {
-        throw new Error("Invalid structured response from AI");
-      }
-
-      categorization.confidence = Math.max(0, Math.min(1, categorization.confidence));
-
-      return categorization;
-    } catch (error) {
-      console.error("Error categorizing image with AI:", error);
-      return {
-        category: "exterior",
-        confidence: 0.1,
-        reasoning: "Failed to categorize with AI, defaulted to exterior",
-      };
-    }
-  }
 
   private generateCategorizedFilename(originalUrl: string, lotId: string, category: string): string {
     const timestamp = Date.now();
@@ -305,18 +225,6 @@ Be precise and choose the most specific category that matches the primary focus 
     }
   }
 
-  private arrayBufferToBase64(buffer: Uint8Array): string {
-    // Convert Uint8Array to base64 efficiently without causing stack overflow
-    let binary = '';
-    const chunkSize = 8192; // Process in chunks to avoid stack overflow
-    
-    for (let i = 0; i < buffer.length; i += chunkSize) {
-      const chunk = buffer.slice(i, i + chunkSize);
-      binary += String.fromCharCode.apply(null, Array.from(chunk));
-    }
-    
-    return btoa(binary);
-  }
 
   private async delay(min: number, max: number): Promise<void> {
     const delay = Math.floor(Math.random() * (max - min + 1)) + min;
