@@ -308,6 +308,9 @@ verify_jwt = false
 [functions.ownership-cost-forecast]
 verify_jwt = false
 
+[functions.function-call]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
