@@ -1,17 +1,16 @@
-import { DIFY_API_CONFIG } from "./config.ts";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts"
+import { supabase } from "./config.ts";
 import { createDatabaseService } from "../shared/database-service.ts";
 import type {
   Photo,
   ImageCategorizationResult,
-  DifyApiRequest,
-  DifyApiResponse,
 } from "./schemas.ts";
 
 // Initialize database service
 const dbService = createDatabaseService();
 
 /**
- * Categorize a single image using Dify API
+ * Categorize a single image using function-call edge function
  */
 export async function categorizeImage(
   imageUrl: string
@@ -19,17 +18,10 @@ export async function categorizeImage(
   try {
     console.log(`Categorizing image: ${imageUrl}`);
 
-    // if (!DIFY_API_CONFIG.apiKey) {
-    //   console.error("DIFY_API_KEY is not configured");
-    //   return null;
-    // }
-
-    const requestBody: DifyApiRequest = {
-      inputs: {
-        query: "Provide the results with the image url",
-      },
-      response_mode: "blocking",
-      user: "car-inspection-system",
+    // Prepare the request payload for function-call edge function
+    const functionCallPayload = {
+      function_name: "image_categorization",
+      query: "Provide the results with the image url",
       files: [
         {
           type: "image",
@@ -39,32 +31,48 @@ export async function categorizeImage(
       ],
     };
 
-    const response = await fetch(DIFY_API_CONFIG.url, {
+    // Get Supabase URL and service key for internal function call
+    // @ts-ignore: Deno global is available in Supabase Edge Functions
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    // @ts-ignore: Deno global is available in Supabase Edge Functions
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error("Missing Supabase configuration for function call");
+      return null;
+    }
+
+    // Call the function-call edge function
+    const response = await fetch(`${supabaseUrl}/functions/v1/function-call`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        // Authorization: `Bearer ${DIFY_API_CONFIG.apiKey}`,
-        Authorization: `Bearer app-jL9rbqp3bp4MABfC1lZcfNLE`,
+        "Authorization": `Bearer ${supabaseServiceKey}`,
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify(functionCallPayload),
     });
 
     if (!response.ok) {
       console.error(
-        `Dify API request failed: ${response.status} ${response.statusText}`
+        `Function-call request failed: ${response.status} ${response.statusText}`
       );
       const errorText = await response.text();
       console.error("Error response:", errorText);
       return null;
     }
 
-    const data: DifyApiResponse = await response.json();
-    console.log(`Dify API response for ${imageUrl}:`, data);
+    const data = await response.json();
+    console.log(`Function-call response for ${imageUrl}:`, data);
 
-    // Parse the JSON response from the answer field
+    if (!data.success || !data.payload) {
+      console.error("Function-call returned unsuccessful response:", data);
+      return null;
+    }
+
+    // Parse the JSON response from the payload field
     try {
       const answerJson = JSON.parse(
-        data.answer.replace(/```json\n|\n```/g, "")
+        data.payload.replace(/```json\n|\n```/g, "")
       );
 
       const result: ImageCategorizationResult = {
@@ -78,8 +86,8 @@ export async function categorizeImage(
       );
       return result;
     } catch (parseError) {
-      console.error("Failed to parse Dify API response:", parseError);
-      console.error("Raw answer:", data.answer);
+      console.error("Failed to parse function-call response:", parseError);
+      console.error("Raw payload:", data.payload);
       return null;
     }
   } catch (error) {
@@ -167,11 +175,13 @@ function getFullImageUrl(path: string): string {
 
   // If it's a Supabase storage path, construct the full URL
   if (path.startsWith("inspection-photos/")) {
+    // @ts-ignore: Deno global is available in Supabase Edge Functions
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     return `${supabaseUrl}/storage/v1/object/public/${path}`;
   }
 
   // Default case - assume it's a relative path to Supabase storage
+  // @ts-ignore: Deno global is available in Supabase Edge Functions
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
   return `${supabaseUrl}/storage/v1/object/public/inspection-photos/${path}`;
 }
