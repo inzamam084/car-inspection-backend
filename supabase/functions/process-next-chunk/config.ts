@@ -13,7 +13,6 @@ export const supabase = createClient(supabaseUrl, supabaseServiceKey);
 export const GEMINI_CONFIG = {
   apiKey: Deno.env.get("GEMINI_API_KEY") || "",
   baseUrl: "https://generativelanguage.googleapis.com",
-  model: "gemini-2.5-flash",
   uploadUrl: "https://generativelanguage.googleapis.com/upload/v1beta/files",
 } as const;
 
