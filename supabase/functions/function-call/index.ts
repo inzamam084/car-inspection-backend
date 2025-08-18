@@ -114,15 +114,21 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const {function_name, user_id, ...rest} = body;
+    const {function_name, user_id, files, ...rest} = body;
     
-    logDebug(requestId, 'Request body parsed', { function_name, user_id, inputs_count: Object.keys(rest).length });
+    logDebug(requestId, 'Request body parsed', { 
+      function_name, 
+      user_id, 
+      inputs_count: Object.keys(rest).length,
+      files_count: files ? files.length : 0
+    });
     
     functionName = function_name;
     requestData = {
       inputs: rest,
       user: "abc-123",
-      response_mode: 'blocking'
+      response_mode: 'blocking',
+      ...(files && { files })
     };
 
     // Get user_id from function params or JWT token
@@ -223,8 +229,21 @@ Deno.serve(async (req) => {
     logDebug(requestId, 'Making request to Dify API', { 
       url: difyUrl, 
       type: mappingData.type,
-      inputs_count: Object.keys(rest).length 
+      inputs_count: Object.keys(rest).length,
+      files_count: files ? files.length : 0
     });
+    
+    // Prepare the request body for Dify API
+    const difyRequestBody: any = {
+      inputs: rest,
+      user: "abc-123",
+      response_mode: 'blocking',
+    };
+    
+    // Add files parameter at root level if present
+    if (files && files.length > 0) {
+      difyRequestBody.files = files;
+    }
     
     const response = await fetch(difyUrl, {
       method: 'POST',
@@ -232,11 +251,7 @@ Deno.serve(async (req) => {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${mappingData.api_key}`
       },
-      body: JSON.stringify({
-        inputs: rest,
-        user: "abc-123",
-        response_mode: 'blocking',
-      })
+      body: JSON.stringify(difyRequestBody)
     })
     
     if (!response.ok) {
