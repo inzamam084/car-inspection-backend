@@ -71,9 +71,22 @@ export async function categorizeImage(
 
     // Parse the JSON response from the payload field
     try {
-      const answerJson = JSON.parse(
-        data.payload.replace(/```json\n|\n```/g, "")
-      );
+      // Extract JSON from the response that may contain explanatory text
+      let jsonString = data.payload;
+      
+      // Look for JSON block between ```json and ``` markers
+      const jsonMatch = jsonString.match(/```json\s*\n([\s\S]*?)\n\s*```/);
+      if (jsonMatch) {
+        jsonString = jsonMatch[1];
+      } else {
+        // If no markdown code block, try to find JSON object directly
+        const jsonObjectMatch = jsonString.match(/\{[\s\S]*\}/);
+        if (jsonObjectMatch) {
+          jsonString = jsonObjectMatch[0];
+        }
+      }
+
+      const answerJson = JSON.parse(jsonString.trim());
 
       const result: ImageCategorizationResult = {
         category: answerJson.category,
