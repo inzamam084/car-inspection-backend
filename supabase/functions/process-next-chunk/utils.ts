@@ -219,6 +219,27 @@ export async function uploadImageToGeminiRest(
     const uploadResult = await uploadResponse.json();
     console.log(`✅ Successfully uploaded ${displayName} to Gemini`);
 
+    // Step 5: Save the Gemini file ID to the photos table
+    try {
+      const geminiFileId = uploadResult.file.name; // Extract file ID from the response
+      console.log(`💾 Saving Gemini file ID ${geminiFileId} to photos table for image ${imageId}`);
+      
+      const { error: updateError } = await supabase
+        .from("photos")
+        .update({ image_id: geminiFileId })
+        .eq("id", imageId);
+
+      if (updateError) {
+        console.error(`❌ Failed to update photos table with image_id for ${imageId}:`, updateError);
+        // Don't throw error here as the upload was successful, just log the warning
+      } else {
+        console.log(`✅ Successfully saved image_id ${geminiFileId} to photos table for image ${imageId}`);
+      }
+    } catch (dbError) {
+      console.error(`❌ Database error while saving image_id for ${imageId}:`, dbError);
+      // Don't throw error here as the upload was successful
+    }
+
     return {
       uri: uploadResult.file.uri,
       mimeType: uploadResult.file.mimeType,
