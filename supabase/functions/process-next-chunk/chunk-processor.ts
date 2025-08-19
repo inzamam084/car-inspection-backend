@@ -2,7 +2,6 @@
  * Main processing logic for the process-next-chunk function
  */
 
-import { DIFY_CONFIG } from "./config.ts";
 import { PROMPT_MASTER } from "./prompts.ts";
 import { VEHICLE_REPORT_SCHEMA } from "./vehicle-report-schema.ts";
 import {
@@ -17,16 +16,16 @@ import {
 import type {
   FileReference,
   VehicleInformation,
-  DifyWorkflowPayload,
   DifyStreamEvent,
   ProcessingError,
 } from "./schemas.ts";
 
-// Declare EdgeRuntime for type safety
+// Declare EdgeRuntime and Deno for type safety
 declare const EdgeRuntime: any;
+declare const Deno: any;
 
 /**
- * Send data to Dify Workflow API with streaming response handling
+ * Send data to Dify Workflow API via function-call service with streaming response handling
  */
 export async function sendToDifyAPI(
   inspectionId: string,
@@ -35,221 +34,70 @@ export async function sendToDifyAPI(
   geminiRequestBody: any
 ): Promise<void> {
   try {
-    // Prepare inputs for Dify workflow
-    const difyPayload: DifyWorkflowPayload = {
-      inputs: {
-        inspection_id: inspectionId,
-        gemini_request_body: JSON.stringify(geminiRequestBody),
-      },
+    // Prepare payload for function-call service
+    const functionCallPayload = {
+      function_name: "car_inspection_workflow", // This should match the function name in dify_function_mapping table
       response_mode: "streaming",
-      user: `inspection_${inspectionId}`,
+      // user_id: `inspection_${inspectionId}`,
+      inspection_id: inspectionId,
+      gemini_request_body: JSON.stringify(geminiRequestBody),
+      uploaded_files_count: uploadedFiles.length,
+      vehicle_information: vehicleInformation,
     };
 
-    console.log("Sending data to Dify Workflow API:", {
+    console.log("Sending data to function-call service:", {
       inspection_id: inspectionId,
       uploaded_files_count: uploadedFiles.length,
       vehicle_information: vehicleInformation,
     });
 
-    const difyResponse = await fetch(DIFY_CONFIG.baseUrl, {
+    // Get the function-call service URL (assuming it's deployed as a Supabase Edge Function)
+    const functionCallUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/function-call`;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+
+    // Fire-and-forget request to function-call service
+    // We don't await the streaming response since it will run in background
+    fetch(functionCallUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${DIFY_CONFIG.apiKey}`,
+        "Authorization": `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify(difyPayload),
+      body: JSON.stringify(functionCallPayload),
+    }).then(async (functionCallResponse) => {
+      if (!functionCallResponse.ok) {
+        const errorText = await functionCallResponse.text();
+        console.error(
+          `Function-call service request failed: ${functionCallResponse.status} ${functionCallResponse.statusText} - ${errorText}`
+        );
+        return;
+      }
+      
+      console.log(
+        `Successfully initiated Dify workflow via function-call service for inspection ${inspectionId}`
+      );
+      
+      // The streaming response will be handled entirely by the function-call service
+      // We don't need to process the stream here since it's fire-and-forget
+    }).catch((error) => {
+      console.error(
+        `Error sending data to function-call service for inspection ${inspectionId}:`,
+        error
+      );
     });
 
-    if (!difyResponse.ok) {
-      const errorText = await difyResponse.text();
-      throw new Error(
-        `Dify Workflow API request failed: ${difyResponse.status} ${difyResponse.statusText} - ${errorText}`
-      );
-    }
-
-    // Handle streaming response
-    await handleDifyStreamingResponse(difyResponse, inspectionId);
-
     console.log(
-      `Successfully initiated Dify workflow for inspection ${inspectionId}`
+      `Dify workflow request sent to function-call service for inspection ${inspectionId}`
     );
   } catch (error) {
     console.error(
-      `Error sending data to Dify Workflow API for inspection ${inspectionId}:`,
+      `Error sending data to function-call service for inspection ${inspectionId}:`,
       error
     );
     throw error;
   }
 }
 
-/**
- * Handle Dify streaming response
- */
-async function handleDifyStreamingResponse(
-  response: Response,
-  inspectionId: string
-): Promise<void> {
-  if (!response.body) {
-    throw new Error("No response body received from Dify API");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      // Accumulate chunks in buffer to handle partial JSON
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-
-      // Keep the last incomplete line in buffer
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          await processDifyStreamLine(line, inspectionId);
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-/**
- * Process individual Dify stream line
- */
-async function processDifyStreamLine(
-  line: string,
-  inspectionId: string
-): Promise<void> {
-  try {
-    const jsonStr = line.slice(6).trim();
-    if (!jsonStr) return;
-
-    const data: DifyStreamEvent = JSON.parse(jsonStr);
-
-    // Handle different event types with detailed logging
-    switch (data.event) {
-      case "workflow_started":
-        console.log(`🚀 [WORKFLOW_STARTED] Inspection ${inspectionId}:`, {
-          workflow_run_id: data.workflow_run_id,
-          task_id: data.task_id,
-          workflow_id: data.data?.workflow_id,
-          created_at: data.data?.created_at,
-        });
-        break;
-
-      case "node_started":
-        console.log(`🔄 [NODE_STARTED] Inspection ${inspectionId}:`, {
-          workflow_run_id: data.workflow_run_id,
-          task_id: data.task_id,
-          node_id: data.data?.node_id,
-          node_type: data.data?.node_type,
-          title: data.data?.title,
-          index: data.data?.index,
-          predecessor_node_id: data.data?.predecessor_node_id,
-          created_at: data.data?.created_at,
-        });
-        break;
-
-      case "text_chunk":
-        console.log(`📝 [TEXT_CHUNK] Inspection ${inspectionId}:`, {
-          workflow_run_id: data.workflow_run_id,
-          task_id: data.task_id,
-          text:
-            data.data?.text?.substring(0, 100) +
-            (data.data?.text?.length > 100 ? "..." : ""),
-          from_variable_selector: data.data?.from_variable_selector,
-        });
-        break;
-
-      case "node_finished":
-        console.log(`✅ [NODE_FINISHED] Inspection ${inspectionId}:`, {
-          workflow_run_id: data.workflow_run_id,
-          task_id: data.task_id,
-          node_id: data.data?.node_id,
-          node_type: data.data?.node_type,
-          title: data.data?.title,
-          index: data.data?.index,
-          status: data.data?.status,
-          elapsed_time: data.data?.elapsed_time,
-          total_tokens: data.data?.execution_metadata?.total_tokens,
-          total_price: data.data?.execution_metadata?.total_price,
-          currency: data.data?.execution_metadata?.currency,
-          error: data.data?.error,
-        });
-        break;
-
-      case "workflow_finished":
-        console.log(`🏁 [WORKFLOW_FINISHED] Inspection ${inspectionId}:`, {
-          workflow_run_id: data.workflow_run_id,
-          task_id: data.task_id,
-          workflow_id: data.data?.workflow_id,
-          status: data.data?.status,
-          elapsed_time: data.data?.elapsed_time,
-          total_tokens: data.data?.total_tokens,
-          total_steps: data.data?.total_steps,
-          outputs: data.data?.outputs,
-          error: data.data?.error,
-          created_at: data.data?.created_at,
-          finished_at: data.data?.finished_at,
-        });
-
-        // Update inspection record with workflow completion
-        if (data.workflow_run_id) {
-          await updateInspectionWorkflowId(inspectionId, data.workflow_run_id);
-        }
-        break;
-
-      case "tts_message":
-        console.log(`🔊 [TTS_MESSAGE] Inspection ${inspectionId}:`, {
-          workflow_run_id: data.workflow_run_id,
-          task_id: data.task_id,
-          message_id: data.message_id,
-          audio_length: data.audio?.length || 0,
-          created_at: data.created_at,
-        });
-        break;
-
-      case "tts_message_end":
-        console.log(`🔇 [TTS_MESSAGE_END] Inspection ${inspectionId}:`, {
-          workflow_run_id: data.workflow_run_id,
-          task_id: data.task_id,
-          message_id: data.message_id,
-          created_at: data.created_at,
-        });
-        break;
-
-      case "ping":
-        console.log(
-          `💓 [PING] Inspection ${inspectionId}: Connection keepalive`
-        );
-        break;
-
-      default:
-        console.log(`❓ [UNKNOWN_EVENT] Inspection ${inspectionId}:`, {
-          event: data.event,
-          workflow_run_id: data.workflow_run_id,
-          task_id: data.task_id,
-          data: data.data,
-        });
-        break;
-    }
-  } catch (parseError) {
-    console.warn(
-      `⚠️ Failed to parse streaming data for inspection ${inspectionId}:`,
-      {
-        error: parseError.message,
-        line: line.substring(0, 200) + (line.length > 200 ? "..." : ""),
-      }
-    );
-  }
-}
 
 /**
  * Main Gemini processing function (replaces chunk processing)
