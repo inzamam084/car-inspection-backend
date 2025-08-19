@@ -117,13 +117,8 @@ export async function categorizeImages(photos: Photo[]): Promise<void> {
 
   const categorizePromises = photos.map(async (photo) => {
     try {
-      // Get the full URL for the image
-      // const imageUrl = getFullImageUrl(photo.converted_path || photo.path);
-
       const result = await categorizeImage(photo.path);
-
       if (result) {
-        // Update the photo category in the database
         await updatePhotoCategory(photo.id, result.category);
         console.log(
           `Updated photo ${photo.id} with category: ${result.category}`
@@ -175,26 +170,4 @@ async function updatePhotoCategory(
     console.error(`Error updating photo category:`, error);
     throw error;
   }
-}
-
-/**
- * Get full image URL from path
- */
-function getFullImageUrl(path: string): string {
-  // If it's already a full URL, return as is
-  if (path.startsWith("http://") || path.startsWith("https://")) {
-    return path;
-  }
-
-  // If it's a Supabase storage path, construct the full URL
-  if (path.startsWith("inspection-photos/")) {
-    // @ts-ignore: Deno global is available in Supabase Edge Functions
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
-    return `${supabaseUrl}/storage/v1/object/public/${path}`;
-  }
-
-  // Default case - assume it's a relative path to Supabase storage
-  // @ts-ignore: Deno global is available in Supabase Edge Functions
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
-  return `${supabaseUrl}/storage/v1/object/public/inspection-photos/${path}`;
 }

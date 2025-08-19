@@ -3,8 +3,9 @@ import { supabase } from "./config.ts";
 import {
   runAnalysisInBackground,
   runScrapeThenAnalysis,
-} from "./run-inspection-processor.ts";
-import { processExtensionData } from "./extension-processor.ts";
+} from "./processor.ts";
+import { processExtensionData } from "./extension-handler.ts";
+import { runInBackground } from "./background-task.ts";
 import type {
   WebhookPayload,
   ExtensionPayload,
@@ -78,24 +79,14 @@ serve(async (req): Promise<Response> => {
         .substr(2, 9)}`;
 
       // Run extension processing in background
-      const backgroundTask = async () => {
-        try {
-          const result = await processExtensionData(
-            extensionPayload.vehicleData
-          );
-          if (!result.success) {
-            console.error(`Extension processing failed: ${result.error}`);
-          }
-        } catch (error) {
-          console.error("Background extension processing error:", error);
+      runInBackground(async () => {
+        const result = await processExtensionData(
+          extensionPayload.vehicleData
+        );
+        if (!result.success) {
+          console.error(`Extension processing failed: ${result.error}`);
         }
-      };
-
-      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
-        EdgeRuntime.waitUntil(backgroundTask());
-      } else {
-        backgroundTask().catch((err) => console.error(err));
-      }
+      });
 
       // Return immediate response
       const response: ApiResponse = {
@@ -151,17 +142,11 @@ serve(async (req): Promise<Response> => {
         });
       }
 
-      // Decide which pipeline to invoke
-      const backgroundTask =
-        inspection.type === "url"
-          ? () => runScrapeThenAnalysis(inspection as Inspection)
-          : () => runAnalysisInBackground(inspection.id);
-
-      // Kick off in background
-      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
-        EdgeRuntime.waitUntil(backgroundTask());
+      // Decide which pipeline to invoke and run in background
+      if (inspection.type === "url") {
+        runInBackground(() => runScrapeThenAnalysis(inspection as Inspection));
       } else {
-        backgroundTask().catch((err) => console.error(err));
+        runInBackground(() => runAnalysisInBackground(inspection.id));
       }
 
       // Return immediate response
@@ -194,22 +179,12 @@ serve(async (req): Promise<Response> => {
         .substr(2, 9)}`;
 
       // Run extension processing in background
-      const backgroundTask = async () => {
-        try {
-          const result = await processExtensionData(vehicleData);
-          if (!result.success) {
-            console.error(`Extension processing failed: ${result.error}`);
-          }
-        } catch (error) {
-          console.error("Background extension processing error:", error);
+      runInBackground(async () => {
+        const result = await processExtensionData(vehicleData);
+        if (!result.success) {
+          console.error(`Extension processing failed: ${result.error}`);
         }
-      };
-
-      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
-        EdgeRuntime.waitUntil(backgroundTask());
-      } else {
-        backgroundTask().catch((err) => console.error(err));
-      }
+      });
 
       // Return immediate response
       const response: ApiResponse = {

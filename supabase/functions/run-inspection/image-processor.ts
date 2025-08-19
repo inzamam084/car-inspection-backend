@@ -1,4 +1,5 @@
 import { supabase } from "./config.ts";
+import { getRefererForUrl, generateCategorizedFilename, getRandomDelay } from "./image-utils.ts";
 import type { UploadResult } from "./schemas.ts";
 
 export class ImageProcessor {
@@ -40,7 +41,7 @@ export class ImageProcessor {
           const imageBuffer = await this.downloadImageWithRetry(url, 3);
 
           // Generate filename with default category - will be categorized later by categorizeImages()
-          const filename = this.generateCategorizedFilename(url, lotId, "uncategorized");
+          const filename = generateCategorizedFilename(url, lotId, "uncategorized");
 
           console.log(`[${globalIndex}/${imageUrls.length}] 📤 Uploading as: ${filename}`);
 
@@ -80,7 +81,7 @@ export class ImageProcessor {
           }
 
           if (j < batch.length - 1) {
-            await this.delay(1500, 2500);
+            await getRandomDelay(1500, 2500);
           }
         } catch (error) {
           console.error(`[${globalIndex}/${imageUrls.length}] ❌ Processing failed: ${(error as Error).message}`);
@@ -94,7 +95,7 @@ export class ImageProcessor {
 
       if (i + batchSize < imageUrls.length) {
         console.log(`⏳ Batch ${batchNumber} completed. Waiting before next batch...`);
-        await this.delay(3000, 5000);
+        await getRandomDelay(3000, 5000);
       }
     }
 
@@ -111,7 +112,7 @@ export class ImageProcessor {
           throw error;
         }
         console.log(`Download attempt ${attempt} failed for ${url}, retrying...`);
-        await this.delay(1000, 2000);
+        await getRandomDelay(1000, 2000);
       }
     }
     throw new Error("Max retries exceeded");
@@ -121,7 +122,7 @@ export class ImageProcessor {
     const response = await fetch(url, {
       headers: {
         "User-Agent": this.userAgents[Math.floor(Math.random() * this.userAgents.length)],
-        "Referer": this.getRefererForUrl(url),
+        "Referer": getRefererForUrl(url),
         "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
       },
     });
@@ -134,40 +135,6 @@ export class ImageProcessor {
     return new Uint8Array(arrayBuffer);
   }
 
-  private getRefererForUrl(url: string): string {
-    try {
-      const urlObj = new URL(url);
-      const hostname = urlObj.hostname.toLowerCase();
-
-      // Map hostnames to their appropriate referers
-      if (hostname.includes("craigslist")) {
-        return "https://craigslist.org/";
-      } else if (hostname.includes("copart")) {
-        return "https://www.copart.com/";
-      } else if (hostname.includes("abetter")) {
-        return "https://abetter.bid/";
-      } else if (hostname.includes("autobidmaster")) {
-        return "https://autobidmaster.com/";
-      } else if (hostname.includes("capital-auto-auction")) {
-        return "https://www.capital-auto-auction.com/";
-      } else if (hostname.includes("salvagebid")) {
-        return "https://www.salvagebid.com/";
-      } else {
-        // Default referer based on the image URL's domain
-        return `${urlObj.protocol}//${urlObj.hostname}/`;
-      }
-    } catch (error) {
-      // Fallback to a generic referer if URL parsing fails
-      return "https://www.google.com/";
-    }
-  }
-
-
-  private generateCategorizedFilename(originalUrl: string, lotId: string, category: string): string {
-    const timestamp = Date.now();
-    const randomId = Math.random().toString(36).substring(2, 15);
-    return `${category}_${timestamp}_${randomId}.jpg`;
-  }
 
   private async uploadToSupabase(
     imageBuffer: Uint8Array,
@@ -226,10 +193,6 @@ export class ImageProcessor {
   }
 
 
-  private async delay(min: number, max: number): Promise<void> {
-    const delay = Math.floor(Math.random() * (max - min + 1)) + min;
-    await new Promise((resolve) => setTimeout(resolve, delay));
-  }
 
   private logProcessingSummary(results: UploadResult[]): void {
     const successCount = results.filter((r) => r.success).length;

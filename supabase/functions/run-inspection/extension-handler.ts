@@ -1,6 +1,8 @@
 import { supabase } from "./config.ts";
 import { ImageProcessor } from "./image-processor.ts";
-import { runAnalysisInBackground } from "./run-inspection-processor.ts";
+import { runAnalysisInBackground } from "./processor.ts";
+import { StatusManager } from "./status-manager.ts";
+import { runInBackground } from "./background-task.ts";
 import type { ExtensionVehicleData } from "./schemas.ts";
 
 export async function processExtensionData(vehicleData: ExtensionVehicleData): Promise<{
@@ -24,11 +26,8 @@ export async function processExtensionData(vehicleData: ExtensionVehicleData): P
     const inspectionId = inspectionResult.inspectionId;
     console.log(`✅ Created inspection with ID: ${inspectionId}`);
 
-    // Update status to processing
-    await supabase
-      .from("inspections")
-      .update({ status: "processing" })
-      .eq("id", inspectionId);
+    // Update status to processing using centralized manager
+    await StatusManager.updateStatus(inspectionId, "processing");
 
     // Process images using ImageProcessor
     const imageProcessor = new ImageProcessor();
@@ -49,11 +48,7 @@ export async function processExtensionData(vehicleData: ExtensionVehicleData): P
 
     if (successfulUploads === 0) {
       // Update status to failed if no images were processed
-      await supabase
-        .from("inspections")
-        .update({ status: "failed" })
-        .eq("id", inspectionId);
-
+      await StatusManager.markAsFailed(inspectionId, "No images were successfully processed");
       return {
         success: false,
         error: "No images were successfully processed"
@@ -63,25 +58,14 @@ export async function processExtensionData(vehicleData: ExtensionVehicleData): P
     // Start the analysis pipeline in background
     console.log(`🔄 Starting analysis pipeline for inspection ${inspectionId}`);
     
-    // Use EdgeRuntime.waitUntil to run in background without blocking the response
-    const backgroundTask = async () => {
+    runInBackground(async () => {
       try {
         await runAnalysisInBackground(inspectionId);
       } catch (error) {
         console.error(`Background analysis failed for inspection ${inspectionId}:`, error);
-        await supabase
-          .from("inspections")
-          .update({ status: "failed" })
-          .eq("id", inspectionId);
+        await StatusManager.markAsFailed(inspectionId, `Analysis failed: ${(error as Error).message}`);
       }
-    };
-
-    if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
-      EdgeRuntime.waitUntil(backgroundTask());
-    } else {
-      // Fallback for local development
-      backgroundTask().catch((err) => console.error(err));
-    }
+    });
 
     return {
       success: true,
