@@ -45,7 +45,7 @@ export class ImageProcessor {
 
           console.log(`[${globalIndex}/${imageUrls.length}] 📤 Uploading as: ${filename}`);
 
-          const uploadResult = await this.uploadToSupabase(imageBuffer, filename, inspectionId, bucketName);
+      const uploadResult = await this.uploadToSupabase(imageBuffer, filename, inspectionId, bucketName, "image/png");
 
           if (uploadResult.success && uploadResult.url) {
             const dbResult = await this.saveToDatabase(
@@ -140,13 +140,14 @@ export class ImageProcessor {
     imageBuffer: Uint8Array,
     filename: string,
     inspectionId: string,
-    bucketName: string
+    bucketName: string,
+    contentType: string = "image/jpeg"
   ): Promise<{ success: boolean; url?: string; error?: string }> {
     try {
       const uploadPath = `${inspectionId}/${filename}`;
 
       const { data, error } = await supabase.storage.from(bucketName).upload(uploadPath, imageBuffer, {
-        contentType: "image/jpeg",
+        contentType: contentType,
         cacheControl: "3600",
         upsert: false,
       });
@@ -191,6 +192,7 @@ export class ImageProcessor {
       return { success: false, error: (error as Error).message };
     }
   }
+
 
 
 

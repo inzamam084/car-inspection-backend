@@ -5,21 +5,27 @@ import { StatusManager } from "./status-manager.ts";
 import { runInBackground } from "./background-task.ts";
 import type { ExtensionVehicleData } from "./schemas.ts";
 
-export async function processExtensionData(vehicleData: ExtensionVehicleData): Promise<{
+export async function processExtensionData(
+  vehicleData: ExtensionVehicleData
+): Promise<{
   success: boolean;
   inspectionId?: string;
   error?: string;
 }> {
   try {
-    console.log(`🚗 Processing extension data for ${vehicleData.make} ${vehicleData.model} ${vehicleData.year}`);
-    console.log(`📸 Found ${vehicleData.gallery_images.length} images to process`);
+    console.log(
+      `🚗 Processing extension data for ${vehicleData.make} ${vehicleData.model} ${vehicleData.year}`
+    );
+    console.log(
+      `📸 Found ${vehicleData.gallery_images.length} images to process`
+    );
 
     // Create inspection record
     const inspectionResult = await createInspectionFromVehicleData(vehicleData);
     if (!inspectionResult.success || !inspectionResult.inspectionId) {
       return {
         success: false,
-        error: inspectionResult.error || "Failed to create inspection"
+        error: inspectionResult.error || "Failed to create inspection",
       };
     }
 
@@ -32,56 +38,75 @@ export async function processExtensionData(vehicleData: ExtensionVehicleData): P
     // Process images using ImageProcessor
     const imageProcessor = new ImageProcessor();
     const lotId = vehicleData.vin || `lot-${Date.now()}`;
-    
-    console.log(`🖼️ Starting image processing for lot: ${lotId}`);
+
+    // Combine gallery images with page screenshot if present
+    const allImageUrls = [...vehicleData.gallery_images];
+    if (vehicleData.page_screenshot?.storageUrl) {
+      console.log(`📸 Adding page screenshot to processing queue: ${vehicleData.page_screenshot.storageUrl}`);
+      allImageUrls.push(vehicleData.page_screenshot.storageUrl);
+    }
+
+    console.log(`🖼️ Starting image processing for lot: ${lotId} (${allImageUrls.length} total images)`);
     const uploadResults = await imageProcessor.processImages(
-      vehicleData.gallery_images,
+      allImageUrls,
       lotId,
       inspectionId,
       "inspection-photos"
     );
 
-    const successfulUploads = uploadResults.filter(r => r.success).length;
-    const failedUploads = uploadResults.filter(r => !r.success).length;
+    const successfulUploads = uploadResults.filter((r) => r.success).length;
+    const failedUploads = uploadResults.filter((r) => !r.success).length;
 
-    console.log(`📊 Image processing completed: ${successfulUploads} successful, ${failedUploads} failed`);
+    console.log(
+      `📊 Image processing completed: ${successfulUploads} successful, ${failedUploads} failed`
+    );
 
     if (successfulUploads === 0) {
       // Update status to failed if no images were processed
-      await StatusManager.markAsFailed(inspectionId, "No images were successfully processed");
+      await StatusManager.markAsFailed(
+        inspectionId,
+        "No images were successfully processed"
+      );
       return {
         success: false,
-        error: "No images were successfully processed"
+        error: "No images were successfully processed",
       };
     }
 
     // Start the analysis pipeline in background
     console.log(`🔄 Starting analysis pipeline for inspection ${inspectionId}`);
-    
+
     runInBackground(async () => {
       try {
         await runAnalysisInBackground(inspectionId);
       } catch (error) {
-        console.error(`Background analysis failed for inspection ${inspectionId}:`, error);
-        await StatusManager.markAsFailed(inspectionId, `Analysis failed: ${(error as Error).message}`);
+        console.error(
+          `Background analysis failed for inspection ${inspectionId}:`,
+          error
+        );
+        await StatusManager.markAsFailed(
+          inspectionId,
+          `Analysis failed: ${(error as Error).message}`
+        );
       }
     });
 
     return {
       success: true,
-      inspectionId: inspectionId
+      inspectionId: inspectionId,
     };
-
   } catch (error) {
     console.error("Error processing extension data:", error);
     return {
       success: false,
-      error: (error as Error).message
+      error: (error as Error).message,
     };
   }
 }
 
-async function createInspectionFromVehicleData(vehicleData: ExtensionVehicleData): Promise<{
+async function createInspectionFromVehicleData(
+  vehicleData: ExtensionVehicleData
+): Promise<{
   success: boolean;
   inspectionId?: string;
   error?: string;
@@ -96,7 +121,7 @@ async function createInspectionFromVehicleData(vehicleData: ExtensionVehicleData
       status: "pending",
       type: "extension", // Mark as extension-sourced
       url: vehicleData.listing_url,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     };
 
     console.log("Creating inspection with data:", inspectionData);
@@ -111,14 +136,14 @@ async function createInspectionFromVehicleData(vehicleData: ExtensionVehicleData
       console.error("Error creating inspection:", error);
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
 
     if (!data?.id) {
       return {
         success: false,
-        error: "No inspection ID returned"
+        error: "No inspection ID returned",
       };
     }
 
@@ -132,19 +157,18 @@ async function createInspectionFromVehicleData(vehicleData: ExtensionVehicleData
       seller_name: vehicleData.seller_name,
       seller_phone: vehicleData.seller_phone,
       description: vehicleData.description,
-      scraped_at: vehicleData.scraped_at
+      scraped_at: vehicleData.scraped_at,
     });
 
     return {
       success: true,
-      inspectionId: data.id
+      inspectionId: data.id,
     };
-
   } catch (error) {
     console.error("Unexpected error creating inspection:", error);
     return {
       success: false,
-      error: (error as Error).message
+      error: (error as Error).message,
     };
   }
 }
