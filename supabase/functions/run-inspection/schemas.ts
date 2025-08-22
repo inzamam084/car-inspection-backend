@@ -80,6 +80,12 @@ export interface ExtensionVehicleData {
   year: number;
   email?: string; // User email for the inspection
   user_id?: string; // Optional user ID for tracking
+  page_screenshot?: {
+    storageUrl: string;
+    height: number;
+    timestamp: number;
+    width: number;
+  };
 }
 
 export interface ExtensionPayload {
