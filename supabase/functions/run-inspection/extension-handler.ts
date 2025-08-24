@@ -73,7 +73,7 @@ export async function processExtensionData(
       };
     }
 
-    // Start the analysis pipeline in background
+    // Start analysis pipeline in background
     console.log(`🔄 Starting analysis pipeline for inspection ${inspectionId}`);
 
     runInBackground(async () => {
