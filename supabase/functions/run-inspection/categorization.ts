@@ -90,9 +90,10 @@ export async function categorizeImage(
       const answerJson = JSON.parse(jsonString.trim());
 
       const result: ImageCategorizationResult = {
-        category: answerJson.category,
+        category: answerJson.inspectionResult?.category || answerJson.category || 'exterior',
         confidence: answerJson.confidence || 1.0,
         reasoning: answerJson.reasoning || "No reasoning provided",
+        fullAnalysis: answerJson, // Store the complete LLM analysis
       };
 
       console.log(
@@ -119,9 +120,8 @@ export async function categorizeImages(photos: Photo[]): Promise<void> {
   const categorizePromises = photos.map(async (photo) => {
     try {
       const result = await categorizeImage(photo.path);
-      return
       if (result) {
-        await updatePhotoCategory(photo.id, result.category);
+        await updatePhotoWithAnalysis(photo.id, result.category, result.fullAnalysis);
         console.log(
           `Updated photo ${photo.id} with category: ${result.category}`
         );
@@ -151,7 +151,41 @@ export async function categorizeImages(photos: Photo[]): Promise<void> {
 }
 
 /**
- * Update photo category in the database
+ * Update photo category and LLM analysis in the database
+ */
+async function updatePhotoWithAnalysis(
+  photoId: string,
+  category: string,
+  llmAnalysis?: any
+): Promise<void> {
+  try {
+    const updateData: any = { category };
+    
+    // Add llm_analysis if provided
+    if (llmAnalysis) {
+      updateData.llm_analysis = llmAnalysis;
+    }
+
+    const { error } = await dbService
+      .getClient()
+      .from("photos")
+      .update(updateData)
+      .eq("id", photoId);
+
+    if (error) {
+      console.error(`Failed to update photo ${photoId}:`, error);
+      throw error;
+    }
+
+    console.log(`Successfully updated photo ${photoId} with category: ${category} and LLM analysis`);
+  } catch (error) {
+    console.error(`Error updating photo with analysis:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Update photo category in the database (legacy function)
  */
 async function updatePhotoCategory(
   photoId: string,
