@@ -20,7 +20,7 @@ export async function categorizeImage(
 
     // Prepare the request payload for function-call edge function
     const functionCallPayload = {
-      function_name: "image_categorization",
+      function_name: "image_details_extraction",
       query: "Provide the results with the image url",
       files: [
         {
@@ -73,6 +73,7 @@ export async function categorizeImage(
     try {
       // Extract JSON from the response that may contain explanatory text
       let jsonString = data.payload;
+      console.log("Raw function-call payload:", jsonString);
       
       // Look for JSON block between ```json and ``` markers
       const jsonMatch = jsonString.match(/```json\s*\n([\s\S]*?)\n\s*```/);
@@ -118,6 +119,7 @@ export async function categorizeImages(photos: Photo[]): Promise<void> {
   const categorizePromises = photos.map(async (photo) => {
     try {
       const result = await categorizeImage(photo.path);
+      return
       if (result) {
         await updatePhotoCategory(photo.id, result.category);
         console.log(
