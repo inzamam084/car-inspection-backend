@@ -6,15 +6,12 @@ import { PROMPT_MASTER } from "./prompts.ts";
 import { VEHICLE_REPORT_SCHEMA } from "./vehicle-report-schema.ts";
 import {
   getInspectionData,
-  combineAllImages,
   createVehicleInformation,
-  batchUploadSupabaseImagesRest,
   buildGeminiRequestBodyRest,
   updateInspectionWorkflowId,
   validateGeminiApiKey,
 } from "./utils.ts";
 import type {
-  FileReference,
   VehicleInformation,
   DifyStreamEvent,
   ProcessingError,
@@ -29,7 +26,6 @@ declare const Deno: any;
  */
 export async function sendToDifyAPI(
   inspectionId: string,
-  uploadedFiles: FileReference[],
   vehicleInformation: VehicleInformation,
   geminiRequestBody: any
 ): Promise<void> {
@@ -41,13 +37,11 @@ export async function sendToDifyAPI(
       // user_id: `inspection_${inspectionId}`,
       inspection_id: inspectionId,
       gemini_request_body: JSON.stringify(geminiRequestBody),
-      uploaded_files_count: uploadedFiles.length,
       vehicle_information: vehicleInformation,
     };
 
     console.log("Sending data to function-call service:", {
       inspection_id: inspectionId,
-      uploaded_files_count: uploadedFiles.length,
       vehicle_information: vehicleInformation,
     });
 
@@ -100,82 +94,53 @@ export async function sendToDifyAPI(
 
 
 /**
- * Main Gemini processing function (replaces chunk processing)
+ * Main processing function using LLM analysis data instead of uploading images
  */
 export async function processGeminiAnalysisRest(
   inspectionId: string
 ): Promise<void> {
-  let uploadedFiles: FileReference[] = [];
-
   try {
-    console.log(`Starting Gemini analysis for inspection ${inspectionId}`);
+    console.log(`Starting analysis processing for inspection ${inspectionId}`);
 
-    // Validate Gemini API key first
-    const isApiKeyValid = await validateGeminiApiKey();
-    if (!isApiKeyValid) {
-      throw new Error("Gemini API key validation failed. Please check your GEMINI_API_KEY environment variable.");
-    }
-
-    // Get inspection data from database
+    // Get inspection data from database (including llm_analysis)
     const inspectionData = await getInspectionData(inspectionId);
     console.log("INSPECTION DATA:", inspectionData);
-
-    // Combine all images from different sources
-    const allImages = combineAllImages(inspectionData);
-    console.log(
-      `Processing ${allImages.length} images for inspection ${inspectionId}`
-    );
-
-    // Upload all images to Gemini Files API
-    uploadedFiles = await batchUploadSupabaseImagesRest(allImages, 3);
-    console.log("UPLOADED FILES:", uploadedFiles);
-
-    if (uploadedFiles.length === 0) {
-      throw new Error("No images were successfully uploaded to Gemini");
-    }
-
-    console.log(
-      `Successfully uploaded ${uploadedFiles.length}/${allImages.length} images to Gemini`
-    );
 
     // Create vehicle information object
     const vehicleInformation = createVehicleInformation(inspectionData);
 
-    // Build Gemini request body
+    // Build Gemini request body using llm_analysis data instead of images
     const geminiRequestBody = buildGeminiRequestBodyRest(
       PROMPT_MASTER,
       vehicleInformation,
       inspectionData.obd2_codes,
-      uploadedFiles,
-      VEHICLE_REPORT_SCHEMA
+      VEHICLE_REPORT_SCHEMA,
+      inspectionData
     );
 
     // Send to Dify API in background
     EdgeRuntime.waitUntil(
       sendToDifyAPI(
         inspectionId,
-        uploadedFiles,
         vehicleInformation,
         geminiRequestBody
       )
     );
 
     console.log(
-      `Successfully completed Gemini analysis and started Dify workflow for inspection ${inspectionId}`
+      `Successfully completed analysis processing and started Dify workflow for inspection ${inspectionId}`
     );
   } catch (error) {
     const processingError: ProcessingError = new Error(
-      `Failed to process Gemini analysis: ${error.message}`
+      `Failed to process analysis: ${error.message}`
     );
     processingError.inspectionId = inspectionId;
-    processingError.stage = "gemini_analysis";
+    processingError.stage = "analysis_processing";
 
     console.error(
-      `Error processing Gemini analysis for inspection ${inspectionId}:`,
+      `Error processing analysis for inspection ${inspectionId}:`,
       error
     );
     throw processingError;
   }
-  // Note: File cleanup is commented out in original code
-  // We may want to implement cleanup later if needed
 }

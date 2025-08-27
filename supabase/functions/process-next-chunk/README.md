@@ -39,9 +39,9 @@ The function is now split into multiple focused modules:
 - Graceful error recovery
 
 ### 5. **Performance Optimizations**
-- Configurable concurrency for image uploads
-- Rate limiting and batch processing
+- Uses pre-computed LLM analysis data instead of uploading images
 - Efficient memory usage
+- Streamlined data processing
 
 ## Function Flow
 
@@ -49,11 +49,10 @@ The function is now split into multiple focused modules:
 1. Request received in index.ts
 2. Payload validation and parsing
 3. Background processing initiated via chunk-processor.ts
-4. Inspection data fetched from database
-5. Images uploaded to Gemini API in batches
-6. Gemini request body constructed
-7. Dify workflow initiated with streaming response handling
-8. Database updated with workflow status
+4. Inspection data fetched from database (including llm_analysis)
+5. Gemini request body constructed using LLM analysis data
+6. Dify workflow initiated with streaming response handling
+7. Database updated with workflow status
 ```
 
 ## Configuration
@@ -61,20 +60,25 @@ The function is now split into multiple focused modules:
 Key configuration options in `config.ts`:
 
 ```typescript
-// Processing Configuration
-export const PROCESSING_CONFIG = {
-  maxConcurrentUploads: 3,     // Concurrent image uploads
-  batchDelayMs: 2000,          // Delay between batches
-  rateLimitDelayMs: 1000,      // Rate limiting delay
-}
+// Gemini API Configuration
+export const GEMINI_CONFIG = {
+  apiKey: Deno.env.get("GEMINI_API_KEY") || "",
+  baseUrl: "https://generativelanguage.googleapis.com",
+} as const;
+
+// Dify API Configuration
+export const DIFY_CONFIG = {
+  apiKey: Deno.env.get("DIFY_WORKFLOW_API_KEY") || "",
+  baseUrl: "https://api.dify.ai/v1/workflows/run",
+} as const;
 ```
 
 ## API Integration
 
 ### Gemini API
-- Handles image uploads with resumable upload protocol
+- Uses pre-computed LLM analysis data from photos table
 - Structured output with schema validation
-- Batch processing with concurrency control
+- No image uploading required
 
 ### Dify Workflow API
 - Streaming response handling
@@ -86,7 +90,7 @@ export const PROCESSING_CONFIG = {
 The function includes comprehensive error handling:
 
 - **Validation Errors**: Missing required parameters
-- **Upload Errors**: Failed image uploads to Gemini
+- **Data Errors**: Missing LLM analysis data
 - **API Errors**: Dify workflow API failures
 - **Database Errors**: Supabase query failures
 
@@ -154,8 +158,9 @@ Required environment variables:
 ## Future Enhancements
 
 Potential improvements:
-- Add retry mechanisms for failed uploads
-- Implement file cleanup for Gemini uploads
+- Add retry mechanisms for failed API calls
 - Add metrics collection and monitoring
 - Implement caching for repeated requests
 - Add support for different AI models
+- Enhance LLM analysis data validation
+- Add fallback mechanisms for missing analysis data
