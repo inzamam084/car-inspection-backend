@@ -1,11 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { supabase } from "./config.ts";
-import {
-  runAnalysisInBackground,
-  runScrapeThenAnalysis,
-} from "./processor.ts";
+import { runAnalysisInBackground, runScrapeThenAnalysis } from "./processor.ts";
 import { processExtensionData } from "./extension-handler.ts";
 import { runInBackground } from "./background-task.ts";
+import { withSubscriptionCheck } from "../shared/subscription-middleware.ts";
+import { authenticateUser } from "../shared/database-service.ts";
 import type {
   WebhookPayload,
   ExtensionPayload,
@@ -67,6 +66,55 @@ serve(async (req): Promise<Response> => {
 
     console.log("Received payload:", JSON.stringify(payload));
 
+    // Authenticate user from JWT token
+    const { user, error: authError } = await authenticateUser(req);
+    if (authError || !user) {
+      console.error("Authentication failed:", authError);
+      const errorResponse: ErrorResponse = {
+        error: "Authentication required",
+      };
+      return new Response(JSON.stringify(errorResponse), {
+        status: 401,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+    }
+
+    console.log(`Authenticated user: ${user.id}`);
+
+    // Perform subscription check
+    const subscriptionCheck = await withSubscriptionCheck(user.id, {
+      requireSubscription: true,
+      checkUsageLimit: true,
+      incrementUsage: true, // Increment usage when inspection is processed
+    });
+
+    if (!subscriptionCheck.success) {
+      console.error(`Subscription check failed: ${subscriptionCheck.error}`);
+      const errorResponse: ErrorResponse = {
+        error: subscriptionCheck.error || "Subscription validation failed",
+      };
+      
+      let statusCode = 403;
+      if (subscriptionCheck.code === "SUBSCRIPTION_REQUIRED") {
+        statusCode = 402; // Payment required
+      } else if (subscriptionCheck.code === "USAGE_LIMIT_EXCEEDED") {
+        statusCode = 429; // Too many requests
+      } else if (subscriptionCheck.code === "INTERNAL_ERROR") {
+        statusCode = 500;
+      }
+
+      return new Response(JSON.stringify(errorResponse), {
+        status: statusCode,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+    }
+
+    console.log(`Subscription check passed. Remaining reports: ${subscriptionCheck.remainingReports}`);
+
     // Check if this is extension data (has vehicleData) or webhook data (has inspection_id)
     if ("vehicleData" in payload) {
       // Handle extension data
@@ -80,9 +128,7 @@ serve(async (req): Promise<Response> => {
 
       // Run extension processing in background
       runInBackground(async () => {
-        const result = await processExtensionData(
-          extensionPayload.vehicleData
-        );
+        const result = await processExtensionData(extensionPayload.vehicleData);
         if (!result.success) {
           console.error(`Extension processing failed: ${result.error}`);
         }
