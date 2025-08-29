@@ -50,31 +50,43 @@ export async function runAnalysisInBackground(
       }
     }
 
-    // Trigger Dify workflow directly via function-call service
-    const triggerResponse = await fetch(
-      `${SUPABASE_CONFIG.url}/functions/v1/function-call`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
-        },
-        body: JSON.stringify({
-          function_name: "car_inspection_workflow",
-          response_mode: "streaming",
-          inspection_id: inspectionId,
-        }),
+    // Fire-and-forget request to function-call service
+    // We don't await the streaming response since it will run in background
+    fetch(`${SUPABASE_CONFIG.url}/functions/v1/function-call`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+      },
+      body: JSON.stringify({
+        function_name: "car_inspection_workflow",
+        response_mode: "streaming",
+        inspection_id: inspectionId,
+      }),
+    }).then(async (functionCallResponse) => {
+      if (!functionCallResponse.ok) {
+        const errorText = await functionCallResponse.text();
+        console.error(
+          `Function-call service request failed: ${functionCallResponse.status} ${functionCallResponse.statusText} - ${errorText}`
+        );
+        return;
       }
-    );
 
-    if (!triggerResponse.ok) {
-      console.error("Error triggering Dify workflow via function-call");
-      await dbService.updateInspectionStatus(inspectionId, "failed");
-      return;
-    }
+      console.log(
+        `Successfully initiated Dify workflow via function-call service for inspection ${inspectionId}`
+      );
+
+      // The streaming response will be handled entirely by the function-call service
+      // We don't need to process the stream here since it's fire-and-forget
+    }).catch((error) => {
+      console.error(
+        `Error sending data to function-call service for inspection ${inspectionId}:`,
+        error
+      );
+    });
 
     console.log(
-      `Successfully triggered Dify car inspection workflow for inspection ${inspectionId}`
+      `Dify workflow request sent to function-call service for inspection ${inspectionId}`
     );
     return;
   } catch (error) {
