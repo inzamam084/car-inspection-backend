@@ -1,5 +1,5 @@
 import { supabase } from "./config.ts";
-import { ImageProcessor } from "./image-processor.ts";
+import { ImageProcessor, ProcessingMode } from "./image-processor.ts";
 import { runAnalysisInBackground } from "./processor.ts";
 import { StatusManager } from "./status-manager.ts";
 import { runInBackground } from "./background-task.ts";
@@ -42,16 +42,25 @@ export async function processExtensionData(
     // Combine gallery images with page screenshot if present
     const allImageUrls = [...vehicleData.gallery_images];
     if (vehicleData.page_screenshot?.storageUrl) {
-      console.log(`📸 Adding page screenshot to processing queue: ${vehicleData.page_screenshot.storageUrl}`);
+      console.log(
+        `📸 Adding page screenshot to processing queue: ${vehicleData.page_screenshot.storageUrl}`
+      );
       allImageUrls.push(vehicleData.page_screenshot.storageUrl);
     }
 
-    console.log(`🖼️ Starting image processing for lot: ${lotId} (${allImageUrls.length} total images)`);
+    console.log(
+      `🖼️ Starting hybrid image processing for lot: ${lotId} (${allImageUrls.length} total images)`
+    );
+    // Use hybrid processing mode for best performance and reliability:
+    // - First attempts streaming (memory-efficient for large images)
+    // - Falls back to parallel buffering for failed streams
+    // - Provides optimal balance of speed, memory usage, and reliability
     const uploadResults = await imageProcessor.processImages(
       allImageUrls,
       lotId,
       inspectionId,
-      "inspection-photos"
+      "inspection-photos",
+      ProcessingMode.HYBRID
     );
 
     const successfulUploads = uploadResults.filter((r) => r.success).length;

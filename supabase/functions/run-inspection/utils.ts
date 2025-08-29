@@ -7,6 +7,92 @@ import type {
   TitleImage,
 } from "./schemas.ts";
 
+// --- HTTP Constants ---
+export const HTTP_STATUS = {
+  OK: 200,
+  ACCEPTED: 202,
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  PAYMENT_REQUIRED: 402,
+  FORBIDDEN: 403,
+  TOO_MANY_REQUESTS: 429,
+  INTERNAL_SERVER_ERROR: 500,
+};
+
+export const MIME_TYPES = {
+  JSON: "application/json",
+};
+
+// --- HTTP Utility Functions ---
+
+/**
+ * Creates a standardized JSON response.
+ * @param data The payload to send.
+ * @param status The HTTP status code.
+ * @returns A Response object.
+ */
+export function createJsonResponse(
+  data: unknown,
+  status: number = HTTP_STATUS.OK
+): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": MIME_TYPES.JSON },
+  });
+}
+
+/**
+ * Creates a standardized JSON error response.
+ * @param error The error message.
+ * @param status The HTTP status code.
+ * @returns A Response object.
+ */
+export function createErrorResponse(error: string, status: number): Response {
+  return createJsonResponse({ error }, status);
+}
+
+/**
+ * Parses the JSON body of a request, with validation.
+ * @param req The incoming Request object.
+ * @returns A promise that resolves to the parsed payload.
+ * @throws An error if the body is empty or invalid JSON.
+ */
+export async function parseRequestBody(req: Request): Promise<unknown> {
+  const contentLength = req.headers.get("content-length");
+  if (!contentLength || contentLength === "0") {
+    throw new Error("Request body is required");
+  }
+
+  try {
+    const text = await req.text();
+    if (!text.trim()) {
+      throw new Error("Request body is empty");
+    }
+    return JSON.parse(text);
+  } catch (parseError) {
+    console.error("JSON parsing error:", parseError);
+    throw new Error("Invalid JSON in request body");
+  }
+}
+
+/**
+ * Maps subscription error codes to HTTP status codes.
+ * @param code The subscription error code.
+ * @returns An HTTP status code.
+ */
+export function getStatusForSubscriptionError(code?: string): number {
+  switch (code) {
+    case "SUBSCRIPTION_REQUIRED":
+      return HTTP_STATUS.PAYMENT_REQUIRED;
+    case "USAGE_LIMIT_EXCEEDED":
+      return HTTP_STATUS.TOO_MANY_REQUESTS;
+    case "INTERNAL_ERROR":
+      return HTTP_STATUS.INTERNAL_SERVER_ERROR;
+    default:
+      return HTTP_STATUS.FORBIDDEN;
+  }
+}
+
 // Helper function to create category-based chunks within size limit
 export function createCategoryBasedChunks(
   photos: Photo[],

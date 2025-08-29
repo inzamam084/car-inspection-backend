@@ -1,274 +1,69 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { supabase } from "./config.ts";
-import { runAnalysisInBackground, runScrapeThenAnalysis } from "./processor.ts";
-import { processExtensionData } from "./extension-handler.ts";
-import { runInBackground } from "./background-task.ts";
+import { serve, ConnInfo } from "https://deno.land/std@0.168.0/http/server.ts";
 import { withSubscriptionCheck } from "../shared/subscription-middleware.ts";
 import { authenticateUser } from "../shared/database-service.ts";
-import type {
-  WebhookPayload,
-  ExtensionPayload,
-  ExtensionVehicleData,
-  ApiResponse,
-  ErrorResponse,
-  Inspection,
-} from "./schemas.ts";
+import {
+  parseRequestBody,
+  createErrorResponse,
+  getStatusForSubscriptionError,
+  HTTP_STATUS,
+} from "./utils.ts";
+import { routeRequest } from "./handlers.ts";
 
-// Main serve function
-serve(async (req): Promise<Response> => {
+// --- Main Server ---
+serve(async (req: Request, connInfo: ConnInfo) => {
+  const { remoteAddr } = connInfo;
+  console.log(`Request received from ${remoteAddr.hostname}...`);
+
   try {
-    console.log("Request received..");
+    // 1. Parse and Validate Request Body
+    const payload = await parseRequestBody(req);
 
-    // Check if request has a body
-    const contentLength = req.headers.get("content-length");
-    const contentType = req.headers.get("content-type");
-
-    console.log(
-      `Content-Length: ${contentLength}, Content-Type: ${contentType}`
-    );
-
-    if (!contentLength || contentLength === "0") {
-      console.error("Request body is empty");
-      const errorResponse: ErrorResponse = {
-        error: "Request body is required",
-      };
-      return new Response(JSON.stringify(errorResponse), {
-        status: 400,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-    }
-
-    // Parse the request payload with error handling
-    let payload: WebhookPayload | ExtensionPayload;
-    try {
-      const requestText = await req.text();
-      console.log("Raw request body:", requestText);
-
-      if (!requestText.trim()) {
-        throw new Error("Empty request body");
-      }
-
-      payload = JSON.parse(requestText);
-    } catch (parseError) {
-      console.error("JSON parsing error:", parseError);
-      const errorResponse: ErrorResponse = {
-        error: "Invalid JSON in request body",
-      };
-      return new Response(JSON.stringify(errorResponse), {
-        status: 400,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-    }
-
-    console.log("Received payload:", JSON.stringify(payload));
-
-    // Authenticate user from JWT token
+    // 2. Authenticate User from JWT
     const { user, error: authError } = await authenticateUser(req);
     if (authError || !user) {
       console.error("Authentication failed:", authError);
-      const errorResponse: ErrorResponse = {
-        error: "Authentication required",
-      };
-      return new Response(JSON.stringify(errorResponse), {
-        status: 401,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
+      return createErrorResponse(
+        "Authentication required.",
+        HTTP_STATUS.UNAUTHORIZED
+      );
     }
-
     console.log(`Authenticated user: ${user.id}`);
 
-    // Perform subscription check
+    // 3. Perform Subscription and Usage Check
     const subscriptionCheck = await withSubscriptionCheck(user.id, {
       requireSubscription: true,
       checkUsageLimit: true,
-      incrementUsage: true, // Increment usage when inspection is processed
+      incrementUsage: true,
     });
-
     if (!subscriptionCheck.success) {
-      console.error(`Subscription check failed: ${subscriptionCheck.error}`);
-      const errorResponse: ErrorResponse = {
-        error: subscriptionCheck.error || "Subscription validation failed",
-      };
-      
-      let statusCode = 403;
-      if (subscriptionCheck.code === "SUBSCRIPTION_REQUIRED") {
-        statusCode = 402; // Payment required
-      } else if (subscriptionCheck.code === "USAGE_LIMIT_EXCEEDED") {
-        statusCode = 429; // Too many requests
-      } else if (subscriptionCheck.code === "INTERNAL_ERROR") {
-        statusCode = 500;
-      }
-
-      return new Response(JSON.stringify(errorResponse), {
-        status: statusCode,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
+      console.error(
+        `Subscription check failed for user ${user.id}: ${subscriptionCheck.error}`
+      );
+      const status = getStatusForSubscriptionError(subscriptionCheck.code);
+      return createErrorResponse(
+        subscriptionCheck.error || "Subscription validation failed.",
+        status
+      );
     }
+    console.log(
+      `Subscription check passed. Remaining reports: ${subscriptionCheck.remainingReports}`
+    );
 
-    console.log(`Subscription check passed. Remaining reports: ${subscriptionCheck.remainingReports}`);
-
-    // Check if this is extension data (has vehicleData) or webhook data (has inspection_id)
-    if ("vehicleData" in payload) {
-      // Handle extension data
-      console.log("Processing extension vehicle data (wrapped format)");
-      const extensionPayload = payload as ExtensionPayload;
-
-      // Create a temporary inspection ID for immediate response
-      const tempInspectionId = `temp-${Date.now()}-${Math.random()
-        .toString(36)
-        .substr(2, 9)}`;
-
-      // Run extension processing in background
-      runInBackground(async () => {
-        const result = await processExtensionData(extensionPayload.vehicleData);
-        if (!result.success) {
-          console.error(`Extension processing failed: ${result.error}`);
-        }
-      });
-
-      // Return immediate response
-      const response: ApiResponse = {
-        success: true,
-        message: "Extension data processing started in background",
-        inspectionId: tempInspectionId,
-        status: "processing",
-      };
-
-      return new Response(JSON.stringify(response), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-    } else if ("inspection_id" in payload) {
-      // Handle webhook data (existing logic)
-      const webhookPayload = payload as WebhookPayload;
-
-      if (!webhookPayload.inspection_id) {
-        console.error("Missing inspection_id in payload");
-        const errorResponse: ErrorResponse = {
-          error: "inspection_id is required in request payload",
-        };
-        return new Response(JSON.stringify(errorResponse), {
-          status: 400,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
-      }
-
-      const inspectionId = webhookPayload.inspection_id;
-      console.log(`Processing analysis for inspection ${inspectionId}`);
-
-      // Basic validation - just check if inspection exists
-      const { data: inspection, error: inspectionError } = await supabase
-        .from("inspections")
-        .select("id, vin, email, type, url")
-        .eq("id", inspectionId)
-        .single();
-
-      if (inspectionError) {
-        console.error("Error fetching inspection:", inspectionError);
-        const errorResponse: ErrorResponse = {
-          error: "Failed to fetch inspection details",
-        };
-        return new Response(JSON.stringify(errorResponse), {
-          status: 500,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
-      }
-
-      // Decide which pipeline to invoke and run in background
-      if (inspection.type === "url") {
-        runInBackground(() => runScrapeThenAnalysis(inspection as Inspection));
-      } else {
-        runInBackground(() => runAnalysisInBackground(inspection.id));
-      }
-
-      // Return immediate response
-      const response: ApiResponse = {
-        success: true,
-        message: "Analysis started in background",
-        inspectionId,
-        status: "processing",
-      };
-
-      return new Response(JSON.stringify(response), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-    } else if (
-      "gallery_images" in payload &&
-      "make" in payload &&
-      "model" in payload &&
-      "year" in payload
-    ) {
-      // Handle extension data (direct format - for backward compatibility)
-      console.log("Processing extension vehicle data (direct format)");
-      const vehicleData = payload as ExtensionVehicleData;
-
-      // Create a temporary inspection ID for immediate response
-      const tempInspectionId = `temp-${Date.now()}-${Math.random()
-        .toString(36)
-        .substr(2, 9)}`;
-
-      // Run extension processing in background
-      runInBackground(async () => {
-        const result = await processExtensionData(vehicleData);
-        if (!result.success) {
-          console.error(`Extension processing failed: ${result.error}`);
-        }
-      });
-
-      // Return immediate response
-      const response: ApiResponse = {
-        success: true,
-        message: "Extension data processing started in background",
-        inspectionId: tempInspectionId,
-        status: "processing",
-      };
-
-      return new Response(JSON.stringify(response), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-    } else {
-      // Invalid payload format
-      const errorResponse: ErrorResponse = {
-        error:
-          "Invalid payload format. Expected either 'vehicleData', 'inspection_id', or direct vehicle data with required fields (gallery_images, make, model, year)",
-      };
-      return new Response(JSON.stringify(errorResponse), {
-        status: 400,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-    }
+    // 4. Route to the correct business logic handler
+    return await routeRequest(payload);
   } catch (error) {
-    console.error("Unexpected error:", error);
-    const errorResponse: ErrorResponse = {
-      error: "Internal server error",
-    };
-    return new Response(JSON.stringify(errorResponse), {
-      status: 500,
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    console.error("Unhandled error in request pipeline:", error.message);
+    // Respond to known parsing/validation errors with 400
+    if (
+      error.message.includes("Request body") ||
+      error.message.includes("Invalid JSON")
+    ) {
+      return createErrorResponse(error.message, HTTP_STATUS.BAD_REQUEST);
+    }
+    // Generic fallback for all other unexpected errors
+    return createErrorResponse(
+      "Internal server error.",
+      HTTP_STATUS.INTERNAL_SERVER_ERROR
+    );
   }
 });

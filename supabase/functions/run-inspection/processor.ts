@@ -29,7 +29,7 @@ export async function runAnalysisInBackground(
 
     // Extract data from the batched result
     var photos = inspectionData.photos || [];
-    
+
     if (photos.length === 0) {
       console.error("No photos found for inspection");
       await dbService.updateInspectionStatus(inspectionId, "failed");
@@ -51,9 +51,9 @@ export async function runAnalysisInBackground(
       }
     }
 
-    // Trigger the first chunk processing
+    // Trigger Dify workflow directly via function-call service
     const triggerResponse = await fetch(
-      `${SUPABASE_CONFIG.url}/functions/v1/process-next-chunk`,
+      `${SUPABASE_CONFIG.url}/functions/v1/function-call`,
       {
         method: "POST",
         headers: {
@@ -61,20 +61,21 @@ export async function runAnalysisInBackground(
           Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
         },
         body: JSON.stringify({
+          function_name: "car_inspection_workflow",
+          response_mode: "streaming",
           inspection_id: inspectionId,
-          completed_sequence: 0,
         }),
       }
     );
 
     if (!triggerResponse.ok) {
-      console.error("Error triggering first chunk processing");
+      console.error("Error triggering Dify workflow via function-call");
       await dbService.updateInspectionStatus(inspectionId, "failed");
       return;
     }
 
     console.log(
-      `Successfully triggered queue-based processing for inspection ${inspectionId}`
+      `Successfully triggered Dify car inspection workflow for inspection ${inspectionId}`
     );
     return;
   } catch (error) {

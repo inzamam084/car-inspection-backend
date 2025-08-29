@@ -183,27 +183,3 @@ async function updatePhotoWithAnalysis(
     throw error;
   }
 }
-
-/**
- * Update photo category in the database (legacy function)
- */
-async function updatePhotoCategory(
-  photoId: string,
-  category: string
-): Promise<void> {
-  try {
-    const { error } = await dbService
-      .getClient()
-      .from("photos")
-      .update({ category })
-      .eq("id", photoId);
-
-    if (error) {
-      console.error(`Failed to update category for photo ${photoId}:`, error);
-      throw error;
-    }
-  } catch (error) {
-    console.error(`Error updating photo category:`, error);
-    throw error;
-  }
-}
