@@ -1,28 +1,37 @@
-import { supabase } from "./config.ts";
 import { ImageProcessor, ProcessingMode } from "./image-processor.ts";
 import { runAnalysisInBackground } from "./processor.ts";
 import { StatusManager } from "./status-manager.ts";
-import { runInBackground } from "./background-task.ts";
+import { runInBackground } from "./utils.ts";
+import { Database } from "./database.ts";
 import type { ExtensionVehicleData } from "./schemas.ts";
+import { RequestContext } from "./logging.ts";
 
 export async function processExtensionData(
-  vehicleData: ExtensionVehicleData
+  vehicleData: ExtensionVehicleData,
+  ctx: RequestContext
 ): Promise<{
   success: boolean;
   inspectionId?: string;
   error?: string;
 }> {
   try {
-    console.log(
-      `🚗 Processing extension data for ${vehicleData.make} ${vehicleData.model} ${vehicleData.year}`
-    );
-    console.log(
-      `📸 Found ${vehicleData.gallery_images.length} images to process`
-    );
+    ctx.info("Processing extension data", {
+      make: vehicleData.make,
+      model: vehicleData.model,
+      year: vehicleData.year,
+      images_count: vehicleData.gallery_images.length,
+    });
 
     // Create inspection record
-    const inspectionResult = await createInspectionFromVehicleData(vehicleData);
+    ctx.debug("Creating inspection record from vehicle data");
+    const inspectionResult = await Database.createInspectionFromVehicleData(
+      vehicleData,
+      ctx
+    );
     if (!inspectionResult.success || !inspectionResult.inspectionId) {
+      ctx.error("Failed to create inspection", {
+        error: inspectionResult.error,
+      });
       return {
         success: false,
         error: inspectionResult.error || "Failed to create inspection",
@@ -30,9 +39,13 @@ export async function processExtensionData(
     }
 
     const inspectionId = inspectionResult.inspectionId;
-    console.log(`✅ Created inspection with ID: ${inspectionId}`);
+    ctx.setInspection(inspectionId);
+    ctx.info("Created inspection successfully", {
+      inspection_id: inspectionId,
+    });
 
     // Update status to processing using centralized manager
+    ctx.debug("Updating inspection status to processing");
     await StatusManager.updateStatus(inspectionId, "processing");
 
     // Process images using ImageProcessor
@@ -42,15 +55,16 @@ export async function processExtensionData(
     // Combine gallery images with page screenshot if present
     const allImageUrls = [...vehicleData.gallery_images];
     if (vehicleData.page_screenshot?.storageUrl) {
-      console.log(
-        `📸 Adding page screenshot to processing queue: ${vehicleData.page_screenshot.storageUrl}`
-      );
+      ctx.debug("Adding page screenshot to processing queue", {
+        screenshot_url: vehicleData.page_screenshot.storageUrl,
+      });
       allImageUrls.push(vehicleData.page_screenshot.storageUrl);
     }
 
-    console.log(
-      `🖼️ Starting hybrid image processing for lot: ${lotId} (${allImageUrls.length} total images)`
-    );
+    ctx.info("Starting hybrid image processing", {
+      lot_id: lotId,
+      total_images: allImageUrls.length,
+    });
     // Use hybrid processing mode for best performance and reliability:
     // - First attempts streaming (memory-efficient for large images)
     // - Falls back to parallel buffering for failed streams
@@ -66,12 +80,14 @@ export async function processExtensionData(
     const successfulUploads = uploadResults.filter((r) => r.success).length;
     const failedUploads = uploadResults.filter((r) => !r.success).length;
 
-    console.log(
-      `📊 Image processing completed: ${successfulUploads} successful, ${failedUploads} failed`
-    );
+    ctx.info("Image processing completed", {
+      successful_uploads: successfulUploads,
+      failed_uploads: failedUploads,
+    });
 
     if (successfulUploads === 0) {
       // Update status to failed if no images were processed
+      ctx.error("No images were successfully processed");
       await StatusManager.markAsFailed(
         inspectionId,
         "No images were successfully processed"
@@ -83,16 +99,16 @@ export async function processExtensionData(
     }
 
     // Start analysis pipeline in background
-    console.log(`🔄 Starting analysis pipeline for inspection ${inspectionId}`);
+    ctx.info("Starting analysis pipeline in background");
 
     runInBackground(async () => {
       try {
-        await runAnalysisInBackground(inspectionId);
+        await runAnalysisInBackground(inspectionId, ctx);
       } catch (error) {
-        console.error(
-          `Background analysis failed for inspection ${inspectionId}:`,
-          error
-        );
+        ctx.error("Background analysis failed", {
+          inspection_id: inspectionId,
+          error: (error as Error).message,
+        });
         await StatusManager.markAsFailed(
           inspectionId,
           `Analysis failed: ${(error as Error).message}`
@@ -105,76 +121,9 @@ export async function processExtensionData(
       inspectionId: inspectionId,
     };
   } catch (error) {
-    console.error("Error processing extension data:", error);
-    return {
-      success: false,
+    ctx.error("Error processing extension data", {
       error: (error as Error).message,
-    };
-  }
-}
-
-async function createInspectionFromVehicleData(
-  vehicleData: ExtensionVehicleData
-): Promise<{
-  success: boolean;
-  inspectionId?: string;
-  error?: string;
-}> {
-  try {
-    // Extract relevant data for inspection
-    const inspectionData = {
-      email: vehicleData.email || "extension@copart.com", // Default email if not provided
-      user_id: vehicleData.user_id || null, // Optional user ID
-      vin: vehicleData.vin,
-      mileage: vehicleData.mileage,
-      status: "pending",
-      type: "extension", // Mark as extension-sourced
-      url: vehicleData.listing_url,
-      created_at: new Date().toISOString(),
-    };
-
-    console.log("Creating inspection with data:", inspectionData);
-
-    const { data, error } = await supabase
-      .from("inspections")
-      .insert(inspectionData)
-      .select("id")
-      .single();
-
-    if (error) {
-      console.error("Error creating inspection:", error);
-      return {
-        success: false,
-        error: error.message,
-      };
-    }
-
-    if (!data?.id) {
-      return {
-        success: false,
-        error: "No inspection ID returned",
-      };
-    }
-
-    // Store additional vehicle metadata in a separate table or as JSON
-    // For now, we'll log it for reference
-    console.log("Additional vehicle metadata:", {
-      make: vehicleData.make,
-      model: vehicleData.model,
-      year: vehicleData.year,
-      price: vehicleData.price,
-      seller_name: vehicleData.seller_name,
-      seller_phone: vehicleData.seller_phone,
-      description: vehicleData.description,
-      scraped_at: vehicleData.scraped_at,
     });
-
-    return {
-      success: true,
-      inspectionId: data.id,
-    };
-  } catch (error) {
-    console.error("Unexpected error creating inspection:", error);
     return {
       success: false,
       error: (error as Error).message,

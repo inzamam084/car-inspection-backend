@@ -1,41 +1,47 @@
-import { supabase } from "./config.ts";
 import { runAnalysisInBackground, runScrapeThenAnalysis } from "./processor.ts";
 import { processExtensionData } from "./extension-handler.ts";
-import { runInBackground } from "./background-task.ts";
+import { Database } from "./database.ts";
 import {
   createJsonResponse,
   createErrorResponse,
   HTTP_STATUS,
+  runInBackground,
 } from "./utils.ts";
+import { RequestContext } from "./logging.ts";
 
 // --- Route Handlers ---
 
 /**
  * Handles webhook payloads for existing inspections.
  * @param payload The webhook payload containing the inspection_id.
+ * @param ctx The request context for logging.
  * @returns A Response object.
  */
-export async function handleWebhookRequest(payload: {
-  inspection_id: string;
-}): Promise<Response> {
+export async function handleWebhookRequest(
+  payload: { inspection_id: string },
+  ctx: RequestContext
+): Promise<Response> {
   const { inspection_id: inspectionId } = payload;
-  console.log(`Processing analysis for inspection ${inspectionId}`);
+  ctx.setOperation("webhook_analysis");
+  ctx.setInspection(inspectionId);
+  ctx.info("Processing webhook analysis request", {
+    inspection_id: inspectionId,
+  });
 
   if (!inspectionId) {
+    ctx.error("Missing required inspection_id parameter");
     return createErrorResponse(
       "`inspection_id` is required in request payload.",
       HTTP_STATUS.BAD_REQUEST
     );
   }
 
-  const { data: inspection, error } = await supabase
-    .from("inspections")
-    .select("id, vin, email, type, url")
-    .eq("id", inspectionId)
-    .single();
+  const { data: inspection, error } = await Database.fetchInspectionById(
+    inspectionId,
+    ctx
+  );
 
   if (error || !inspection) {
-    console.error(`Error fetching inspection ${inspectionId}:`, error);
     return createErrorResponse(
       "Failed to fetch inspection details.",
       HTTP_STATUS.INTERNAL_SERVER_ERROR
@@ -44,9 +50,11 @@ export async function handleWebhookRequest(payload: {
 
   // Decide which pipeline to invoke and run in the background
   if (inspection.type === "url") {
-    runInBackground(() => runScrapeThenAnalysis(inspection));
+    ctx.info("Starting scrape-then-analysis pipeline in background");
+    runInBackground(() => runScrapeThenAnalysis(inspection, ctx));
   } else {
-    runInBackground(() => runAnalysisInBackground(inspection.id));
+    ctx.info("Starting analysis pipeline in background");
+    runInBackground(() => runAnalysisInBackground(inspection.id, ctx));
   }
 
   return createJsonResponse(
@@ -63,10 +71,15 @@ export async function handleWebhookRequest(payload: {
 /**
  * Handles data submitted from the browser extension.
  * @param payload The extension payload.
+ * @param ctx The request context for logging.
  * @returns A Response object.
  */
-export function handleExtensionRequest(payload: any): Response {
-  console.log("Processing extension vehicle data.");
+export function handleExtensionRequest(
+  payload: any,
+  ctx: RequestContext
+): Response {
+  ctx.setOperation("extension_processing");
+  ctx.info("Processing extension vehicle data");
 
   // Support both wrapped format (`{ "vehicleData": {...} }`) and direct format (`{ "gallery_images": ... }`)
   const vehicleData = "vehicleData" in payload ? payload.vehicleData : payload;
@@ -76,12 +89,27 @@ export function handleExtensionRequest(payload: any): Response {
     .toString(36)
     .substring(2, 11)}`;
 
+  ctx.debug("Extension data parsed", {
+    temp_inspection_id: tempInspectionId,
+    has_vehicle_data: !!vehicleData,
+    make: vehicleData?.make,
+    model: vehicleData?.model,
+    year: vehicleData?.year,
+    images_count: vehicleData?.gallery_images?.length || 0,
+  });
+
   runInBackground(async () => {
-    const result = await processExtensionData(vehicleData);
+    const result = await processExtensionData(vehicleData, ctx);
     if (!result.success) {
-      console.error(
-        `[background] Extension processing failed for ${tempInspectionId}: ${result.error}`
-      );
+      ctx.error("Extension processing failed in background", {
+        temp_inspection_id: tempInspectionId,
+        error: result.error,
+      });
+    } else {
+      ctx.info("Extension processing completed successfully in background", {
+        temp_inspection_id: tempInspectionId,
+        actual_inspection_id: result.inspectionId,
+      });
     }
   });
 
@@ -99,10 +127,17 @@ export function handleExtensionRequest(payload: any): Response {
 /**
  * Routes the request to the appropriate handler based on payload content.
  * @param payload The parsed request payload.
+ * @param ctx The request context for logging.
  * @returns A promise resolving to a Response object.
  */
-export function routeRequest(payload: any): Promise<Response> {
+export function routeRequest(
+  payload: any,
+  ctx: RequestContext
+): Promise<Response> {
+  ctx.debug("Routing request based on payload content");
+
   if (typeof payload !== "object" || payload === null) {
+    ctx.error("Invalid payload format - not an object");
     return Promise.resolve(
       createErrorResponse(
         "Invalid payload format. Expected a JSON object.",
@@ -113,7 +148,8 @@ export function routeRequest(payload: any): Promise<Response> {
 
   // Route 1: Webhook for existing inspection
   if ("inspection_id" in payload) {
-    return handleWebhookRequest(payload);
+    ctx.debug("Routing to webhook handler");
+    return handleWebhookRequest(payload, ctx);
   }
 
   // Route 2: Data from browser extension (two possible formats)
@@ -124,10 +160,12 @@ export function routeRequest(payload: any): Promise<Response> {
       "model" in payload &&
       "year" in payload)
   ) {
-    return Promise.resolve(handleExtensionRequest(payload));
+    ctx.debug("Routing to extension handler");
+    return Promise.resolve(handleExtensionRequest(payload, ctx));
   }
 
   // Fallback: Invalid format
+  ctx.error("Invalid payload format - missing required fields");
   return Promise.resolve(
     createErrorResponse(
       "Invalid payload format. Expected `inspection_id` or `vehicleData` fields.",

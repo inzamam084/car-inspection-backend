@@ -159,3 +159,10 @@ export interface UploadResult {
   category?: string;
   error?: string;
 }
+
+export type InspectionStatus =
+  | "pending"
+  | "processing"
+  | "analyzing"
+  | "completed"
+  | "failed";
