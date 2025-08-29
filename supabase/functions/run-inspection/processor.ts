@@ -1,8 +1,7 @@
 import { APP_BASE_URL, SUPABASE_CONFIG } from "./config.ts";
 import { createDatabaseService } from "../shared/database-service.ts";
 import { categorizeImages } from "./categorization.ts";
-import { StatusManager } from "./status-manager.ts";
-import type { Inspection, ProcessingJob, ChunkImage } from "./schemas.ts";
+import type { Inspection } from "./schemas.ts";
 
 // Initialize optimized database service
 const dbService = createDatabaseService();
