@@ -293,8 +293,6 @@ deno_version = 1
 [functions.run-inspection]
 verify_jwt = false
 
-[functions.process-next-chunk]
-verify_jwt = false
 
 [functions.function-call]
 verify_jwt = false
