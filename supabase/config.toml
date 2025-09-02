@@ -299,6 +299,9 @@ verify_jwt = false
 [functions.function-call]
 verify_jwt = false
 
+[functions.check-subscription-access]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
