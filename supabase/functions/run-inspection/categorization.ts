@@ -6,7 +6,26 @@ import type { Photo, ImageCategorizationResult } from "./schemas.ts";
 // Initialize database service
 const dbService = createDatabaseService();
 
-// Interface for vehicle data structure
+// Interface for vehicle data structure (matching the actual database structure)
+interface ImageDataExtractResponse {
+  Vin: string | null;
+  Fuel: string | null;
+  Make: string | null;
+  Year: number;
+  Model: string | null;
+  Engine: string | null;
+  Mileage: number;
+  Location: string | null;
+  "Body Style": string | null;
+  Drivetrain: string | null;
+  "Title Status": string | null;
+  Transmission: string | null;
+  "Exterior Color": string | null;
+  "Interior Color": string | null;
+  FullImageText: string | null;
+}
+
+// Interface for vehicle data structure from analysis result
 interface VehicleProperty {
   available: boolean;
   value: string | number;
@@ -39,19 +58,53 @@ interface AnalysisResult {
 }
 
 /**
- * Extract available vehicle data from analysis result
+ * Extract available vehicle data from analysis result and map to database format
  */
-function extractAvailableVehicleData(analysisResult: AnalysisResult): Record<string, any> {
-  const vehicleDetails: Record<string, any> = {};
-  
+function extractAvailableVehicleData(
+  analysisResult: AnalysisResult
+): Partial<ImageDataExtractResponse> {
+  const vehicleDetails: Partial<ImageDataExtractResponse> = {};
+
   if (!analysisResult.vehicle) {
     return vehicleDetails;
   }
 
-  // Extract only available vehicle properties
+  // Mapping from analysis result keys to database format keys
+  const keyMapping: Record<string, keyof ImageDataExtractResponse> = {
+    VIN: "Vin",
+    Make: "Make",
+    Model: "Model",
+    Year: "Year",
+    Engine: "Engine",
+    Mileage: "Mileage",
+    Location: "Location",
+    Body_Style: "Body Style",
+    Drivetrain: "Drivetrain",
+    Title_Status: "Title Status",
+    Transmission: "Transmission",
+    Exterior_Color: "Exterior Color",
+    Interior_Color: "Interior Color",
+    Fuel: "Fuel",
+  };
+
+  // Extract only available vehicle properties and map to database format
   Object.entries(analysisResult.vehicle).forEach(([key, property]) => {
     if (property && property.available && property.value !== "N/A") {
-      vehicleDetails[key] = property.value;
+      const dbKey = keyMapping[key];
+      if (dbKey) {
+        // Handle type conversion for numeric fields
+        if (dbKey === "Year" || dbKey === "Mileage") {
+          const numValue = typeof property.value === "string" 
+            ? parseInt(property.value, 10) 
+            : property.value;
+          if (!isNaN(numValue as number)) {
+            (vehicleDetails as any)[dbKey] = numValue;
+          }
+        } else {
+          // For string fields, ensure we store as string
+          (vehicleDetails as any)[dbKey] = String(property.value);
+        }
+      }
     }
   });
 
@@ -71,20 +124,60 @@ async function updateInspectionVehicleDetails(
   }
 
   try {
-    console.log(`Updating inspection ${inspectionId} with vehicle details:`, vehicleDetails);
+    console.log(
+      `Updating inspection ${inspectionId} with vehicle details:`,
+      vehicleDetails
+    );
+
+    // First, fetch the existing vehicle_details
+    const { data: existingInspection, error: fetchError } = await dbService
+      .getClient()
+      .from("inspections")
+      .select("vehicle_details")
+      .eq("id", inspectionId)
+      .single();
+
+    if (fetchError) {
+      console.error(
+        `Failed to fetch existing vehicle details for inspection ${inspectionId}:`,
+        fetchError
+      );
+      throw fetchError;
+    }
+
+    // Merge existing vehicle details with new ones
+    const existingVehicleDetails = existingInspection?.vehicle_details || {};
+    const mergedVehicleDetails = {
+      ...existingVehicleDetails,
+      ...vehicleDetails,
+    };
+
+    console.log(
+      `Merging vehicle details for inspection ${inspectionId}:`,
+      {
+        existing: existingVehicleDetails,
+        new: vehicleDetails,
+        merged: mergedVehicleDetails,
+      }
+    );
 
     const { error } = await dbService
       .getClient()
       .from("inspections")
-      .update({ vehicle_details: vehicleDetails })
+      .update({ vehicle_details: mergedVehicleDetails })
       .eq("id", inspectionId);
 
     if (error) {
-      console.error(`Failed to update inspection ${inspectionId} with vehicle details:`, error);
+      console.error(
+        `Failed to update inspection ${inspectionId} with vehicle details:`,
+        error
+      );
       throw error;
     }
 
-    console.log(`Successfully updated inspection ${inspectionId} with vehicle details`);
+    console.log(
+      `Successfully updated inspection ${inspectionId} with merged vehicle details`
+    );
   } catch (error) {
     console.error(`Error updating inspection vehicle details:`, error);
     throw error;
@@ -212,7 +305,10 @@ export async function categorizeImage(
 /**
  * Categorize multiple images in batch
  */
-export async function categorizeImages(photos: Photo[], inspectionId?: string): Promise<void> {
+export async function categorizeImages(
+  photos: Photo[],
+  inspectionId?: string
+): Promise<void> {
   console.log(`Starting categorization for ${photos.length} images`);
 
   const categorizePromises = photos.map(async (photo) => {
