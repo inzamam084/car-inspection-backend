@@ -6,11 +6,97 @@ import type { Photo, ImageCategorizationResult } from "./schemas.ts";
 // Initialize database service
 const dbService = createDatabaseService();
 
+// Interface for vehicle data structure
+interface VehicleProperty {
+  available: boolean;
+  value: string | number;
+}
+
+interface VehicleData {
+  Make?: VehicleProperty;
+  Model?: VehicleProperty;
+  Year?: VehicleProperty;
+  Engine?: VehicleProperty;
+  Drivetrain?: VehicleProperty;
+  Title_Status?: VehicleProperty;
+  VIN?: VehicleProperty;
+  Mileage?: VehicleProperty;
+  Location?: VehicleProperty;
+  Transmission?: VehicleProperty;
+  Body_Style?: VehicleProperty;
+  Exterior_Color?: VehicleProperty;
+  Interior_Color?: VehicleProperty;
+  Fuel?: VehicleProperty;
+}
+
+interface AnalysisResult {
+  category?: string;
+  vehicle?: VehicleData;
+  problems?: string[];
+  obd?: any;
+  inspection_findings?: any;
+  [key: string]: any;
+}
+
+/**
+ * Extract available vehicle data from analysis result
+ */
+function extractAvailableVehicleData(analysisResult: AnalysisResult): Record<string, any> {
+  const vehicleDetails: Record<string, any> = {};
+  
+  if (!analysisResult.vehicle) {
+    return vehicleDetails;
+  }
+
+  // Extract only available vehicle properties
+  Object.entries(analysisResult.vehicle).forEach(([key, property]) => {
+    if (property && property.available && property.value !== "N/A") {
+      vehicleDetails[key] = property.value;
+    }
+  });
+
+  return vehicleDetails;
+}
+
+/**
+ * Update inspection with vehicle details
+ */
+async function updateInspectionVehicleDetails(
+  inspectionId: string,
+  vehicleDetails: Record<string, any>
+): Promise<void> {
+  if (Object.keys(vehicleDetails).length === 0) {
+    console.log(`No vehicle details to update for inspection ${inspectionId}`);
+    return;
+  }
+
+  try {
+    console.log(`Updating inspection ${inspectionId} with vehicle details:`, vehicleDetails);
+
+    const { error } = await dbService
+      .getClient()
+      .from("inspections")
+      .update({ vehicle_details: vehicleDetails })
+      .eq("id", inspectionId);
+
+    if (error) {
+      console.error(`Failed to update inspection ${inspectionId} with vehicle details:`, error);
+      throw error;
+    }
+
+    console.log(`Successfully updated inspection ${inspectionId} with vehicle details`);
+  } catch (error) {
+    console.error(`Error updating inspection vehicle details:`, error);
+    throw error;
+  }
+}
+
 /**
  * Categorize a single image using function-call edge function
  */
 export async function categorizeImage(
-  imageUrl: string
+  imageUrl: string,
+  inspectionId?: string
 ): Promise<ImageCategorizationResult | null> {
   try {
     console.log(`Categorizing image: ${imageUrl}`);
@@ -86,6 +172,18 @@ export async function categorizeImage(
 
       const answerJson = JSON.parse(jsonString.trim());
 
+      // Extract vehicle data if available and update inspection
+      if (inspectionId && answerJson.vehicle) {
+        const vehicleDetails = extractAvailableVehicleData(answerJson);
+        if (Object.keys(vehicleDetails).length > 0) {
+          await updateInspectionVehicleDetails(inspectionId, vehicleDetails);
+        }
+      }
+
+      // Create a copy of the analysis without vehicle data for fullAnalysis
+      const analysisWithoutVehicle = { ...answerJson };
+      delete analysisWithoutVehicle.vehicle;
+
       const result: ImageCategorizationResult = {
         category:
           answerJson.inspectionResult?.category ||
@@ -93,7 +191,7 @@ export async function categorizeImage(
           "exterior",
         confidence: answerJson.confidence || 1.0,
         reasoning: answerJson.reasoning || "No reasoning provided",
-        fullAnalysis: answerJson, // Store the complete LLM analysis
+        fullAnalysis: analysisWithoutVehicle, // Store analysis without vehicle data
       };
 
       console.log(
@@ -114,12 +212,12 @@ export async function categorizeImage(
 /**
  * Categorize multiple images in batch
  */
-export async function categorizeImages(photos: Photo[]): Promise<void> {
+export async function categorizeImages(photos: Photo[], inspectionId?: string): Promise<void> {
   console.log(`Starting categorization for ${photos.length} images`);
 
   const categorizePromises = photos.map(async (photo) => {
     try {
-      const result = await categorizeImage(photo.path);
+      const result = await categorizeImage(photo.path, inspectionId);
       if (result) {
         await updatePhotoWithAnalysis(
           photo.id,

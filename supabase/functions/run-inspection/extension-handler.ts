@@ -62,14 +62,17 @@ export async function processExtensionData(
           ],
         };
 
-        const response = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/function-call`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${SUPABASE_CONFIG.serviceKey}`,
-          },
-          body: JSON.stringify(functionCallPayload),
-        });
+        const response = await fetch(
+          `${SUPABASE_CONFIG.url}/functions/v1/function-call`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+            },
+            body: JSON.stringify(functionCallPayload),
+          }
+        );
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -83,14 +86,23 @@ export async function processExtensionData(
             try {
               // Handle JSON wrapped in markdown code blocks
               let jsonString = result.payload;
-              if (jsonString.startsWith('```json\n') && jsonString.endsWith('\n```')) {
+              if (
+                jsonString.startsWith("```json\n") &&
+                jsonString.endsWith("\n```")
+              ) {
                 jsonString = jsonString.slice(8, -4); // Remove ```json\n and \n```
-              } else if (jsonString.startsWith('```\n') && jsonString.endsWith('\n```')) {
+              } else if (
+                jsonString.startsWith("```\n") &&
+                jsonString.endsWith("\n```")
+              ) {
                 jsonString = jsonString.slice(4, -4); // Remove ```\n and \n```
               }
-              
+
               extractedVehicleData = JSON.parse(jsonString);
-              ctx.info("Extracted vehicle data from image", extractedVehicleData);
+              ctx.info(
+                "Extracted vehicle data from image",
+                extractedVehicleData
+              );
               ctx.info("Successfully extracted vehicle data from image", {
                 has_vin: !!extractedVehicleData?.Vin,
                 has_make: !!extractedVehicleData?.Make,
@@ -134,7 +146,6 @@ export async function processExtensionData(
         error: inspectionResult.error || "Failed to create inspection",
       };
     }
-    return
 
     const inspectionId = inspectionResult.inspectionId;
     ctx.setInspection(inspectionId);
@@ -150,25 +161,12 @@ export async function processExtensionData(
     const imageProcessor = new ImageProcessor();
     const lotId = vehicleData.vin || `lot-${Date.now()}`;
 
-    // Combine gallery images with page screenshot if present
-    const allImageUrls = [...vehicleData.gallery_images];
-    if (vehicleData.page_screenshot?.storageUrl) {
-      ctx.debug("Adding page screenshot to processing queue", {
-        screenshot_url: vehicleData.page_screenshot.storageUrl,
-      });
-      allImageUrls.push(vehicleData.page_screenshot.storageUrl);
-    }
-
-    ctx.info("Starting hybrid image processing", {
-      lot_id: lotId,
-      total_images: allImageUrls.length,
-    });
     // Use hybrid processing mode for best performance and reliability:
     // - First attempts streaming (memory-efficient for large images)
     // - Falls back to parallel buffering for failed streams
     // - Provides optimal balance of speed, memory usage, and reliability
     const uploadResults = await imageProcessor.processImages(
-      allImageUrls,
+      vehicleData.gallery_images,
       lotId,
       inspectionId,
       "inspection-photos",

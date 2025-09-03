@@ -53,15 +53,16 @@ export async function runAnalysisInBackground(
         photos_count: photos.length,
       });
       try {
-        await categorizeImages(photos);
+        await categorizeImages(photos, inspectionId);
         ctx.info("Image categorization completed successfully");
       } catch (error) {
         ctx.warn("Image categorization failed, continuing with analysis", {
           error: (error as Error).message,
         });
-        // Continue with the process even if categorization fails
       }
     }
+
+    return
 
     // Fire-and-forget request to function-call service
     ctx.info("Sending request to function-call service for Dify workflow");
