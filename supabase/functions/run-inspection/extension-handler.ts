@@ -227,3 +227,4 @@ export async function processExtensionData(
       error: (error as Error).message,
     };
   }
+}
