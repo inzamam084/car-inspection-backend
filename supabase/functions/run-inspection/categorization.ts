@@ -285,25 +285,88 @@ export async function categorizeImage(
 
       const answerJson = JSON.parse(jsonString.trim());
 
-      // Extract vehicle data if available and update inspection
-      if (inspectionId && answerJson.vehicle) {
-        const vehicleDetails = extractAvailableVehicleData(answerJson);
-        if (Object.keys(vehicleDetails).length > 0) {
-          await updateInspectionVehicleDetails(inspectionId, vehicleDetails);
+      // Check if VIN was detected in the first analysis
+      let finalAnalysisResult = answerJson;
+      const vehicleDetails = extractAvailableVehicleData(answerJson);
+      const vinDetected = vehicleDetails.Vin && vehicleDetails.Vin.trim() !== "";
+
+      // If VIN is detected, re-run the function call for verification
+      if (vinDetected) {
+        console.log(`VIN detected (${vehicleDetails.Vin}), re-running analysis for verification...`);
+        
+        try {
+          // Make a second function call for VIN verification
+          const verificationResponse = await fetch(`${supabaseUrl}/functions/v1/function-call`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify({
+              ...functionCallPayload,
+              query: "Re-analyze this image with special focus on VIN detection accuracy."
+            }),
+          });
+
+          if (verificationResponse.ok) {
+            const verificationData = await verificationResponse.json();
+            console.log(`VIN verification response for ${imageUrl}:`, verificationData);
+
+            if (verificationData.success && verificationData.payload) {
+              // Parse the verification response
+              let verificationJsonString = verificationData.payload;
+              
+              // Look for JSON block between ```json and ``` markers
+              const verificationJsonMatch = verificationJsonString.match(/```json\s*\n([\s\S]*?)\n\s*```/);
+              if (verificationJsonMatch) {
+                verificationJsonString = verificationJsonMatch[1];
+              } else {
+                // If no markdown code block, try to find JSON object directly
+                const verificationJsonObjectMatch = verificationJsonString.match(/\{[\s\S]*\}/);
+                if (verificationJsonObjectMatch) {
+                  verificationJsonString = verificationJsonObjectMatch[0];
+                }
+              }
+
+              try {
+                const verificationJson = JSON.parse(verificationJsonString.trim());
+                console.log(`Using verification analysis result for ${imageUrl}`);
+                finalAnalysisResult = verificationJson;
+              } catch (verificationParseError) {
+                console.warn(`Failed to parse verification response, using original analysis:`, verificationParseError);
+                // Keep using the original analysis result
+              }
+            } else {
+              console.warn(`Verification call unsuccessful, using original analysis`);
+            }
+          } else {
+            console.warn(`Verification call failed with status ${verificationResponse.status}, using original analysis`);
+          }
+        } catch (verificationError) {
+          console.warn(`Error during VIN verification, using original analysis:`, verificationError);
+          // Continue with original analysis
+        }
+      }
+
+      // Extract vehicle data from final analysis result and update inspection
+      if (inspectionId && finalAnalysisResult.vehicle) {
+        const finalVehicleDetails = extractAvailableVehicleData(finalAnalysisResult);
+        if (Object.keys(finalVehicleDetails).length > 0) {
+          await updateInspectionVehicleDetails(inspectionId, finalVehicleDetails);
         }
       }
 
       // Create a copy of the analysis without vehicle data for fullAnalysis
-      const analysisWithoutVehicle = { ...answerJson };
+      const analysisWithoutVehicle = { ...finalAnalysisResult };
       delete analysisWithoutVehicle.vehicle;
 
       const result: ImageCategorizationResult = {
         category:
-          answerJson.inspectionResult?.category ||
-          answerJson.category ||
+          finalAnalysisResult.inspectionResult?.category ||
+          finalAnalysisResult.category ||
           "exterior",
-        confidence: answerJson.confidence || 1.0,
-        reasoning: answerJson.reasoning || "No reasoning provided",
+        confidence: finalAnalysisResult.confidence || 1.0,
+        reasoning: finalAnalysisResult.reasoning || "No reasoning provided",
         fullAnalysis: analysisWithoutVehicle,
       };
 
