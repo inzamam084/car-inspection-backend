@@ -299,7 +299,7 @@ export async function categorizeImage(
           "exterior",
         confidence: answerJson.confidence || 1.0,
         reasoning: answerJson.reasoning || "No reasoning provided",
-        fullAnalysis: analysisWithoutVehicle, // Store analysis without vehicle data
+        fullAnalysis: answerJson,
       };
 
       console.log(
