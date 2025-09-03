@@ -81,7 +81,15 @@ export async function processExtensionData(
           const result = await response.json();
           if (result.success && result.payload) {
             try {
-              extractedVehicleData = JSON.parse(result.payload);
+              // Handle JSON wrapped in markdown code blocks
+              let jsonString = result.payload;
+              if (jsonString.startsWith('```json\n') && jsonString.endsWith('\n```')) {
+                jsonString = jsonString.slice(8, -4); // Remove ```json\n and \n```
+              } else if (jsonString.startsWith('```\n') && jsonString.endsWith('\n```')) {
+                jsonString = jsonString.slice(4, -4); // Remove ```\n and \n```
+              }
+              
+              extractedVehicleData = JSON.parse(jsonString);
               ctx.info("Extracted vehicle data from image", extractedVehicleData);
               ctx.info("Successfully extracted vehicle data from image", {
                 has_vin: !!extractedVehicleData?.Vin,
@@ -219,4 +227,3 @@ export async function processExtensionData(
       error: (error as Error).message,
     };
   }
-}
