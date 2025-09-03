@@ -290,7 +290,7 @@ export async function categorizeImage(
 
       // Create a copy of the analysis without vehicle data for fullAnalysis
       const analysisWithoutVehicle = { ...answerJson };
-      delete analysisWithoutVehicle.vehicle;
+      // delete analysisWithoutVehicle.vehicle;
 
       const result: ImageCategorizationResult = {
         category:
