@@ -77,7 +77,7 @@ export async function handleWebhookRequest(
 export function handleExtensionRequest(
   payload: any,
   ctx: RequestContext
-): Response {
+): Promise<Response> {
   ctx.setOperation("extension_processing");
   ctx.info("Processing extension vehicle data");
 
@@ -114,7 +114,7 @@ export function handleExtensionRequest(
     }
   });
 
-  return createJsonResponse(
+  return Promise.resolve(createJsonResponse(
     {
       success: true,
       message: "Extension data processing started in background",
@@ -122,7 +122,7 @@ export function handleExtensionRequest(
       status: "processing",
     },
     HTTP_STATUS.ACCEPTED
-  );
+  ));
 }
 
 /**
