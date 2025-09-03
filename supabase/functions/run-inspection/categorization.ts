@@ -1,10 +1,7 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts"
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { supabase } from "./config.ts";
 import { createDatabaseService } from "../shared/database-service.ts";
-import type {
-  Photo,
-  ImageCategorizationResult,
-} from "./schemas.ts";
+import type { Photo, ImageCategorizationResult } from "./schemas.ts";
 
 // Initialize database service
 const dbService = createDatabaseService();
@@ -47,7 +44,7 @@ export async function categorizeImage(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${supabaseServiceKey}`,
+        Authorization: `Bearer ${supabaseServiceKey}`,
       },
       body: JSON.stringify(functionCallPayload),
     });
@@ -74,7 +71,7 @@ export async function categorizeImage(
       // Extract JSON from the response that may contain explanatory text
       let jsonString = data.payload;
       console.log("Raw function-call payload:", jsonString);
-      
+
       // Look for JSON block between ```json and ``` markers
       const jsonMatch = jsonString.match(/```json\s*\n([\s\S]*?)\n\s*```/);
       if (jsonMatch) {
@@ -90,7 +87,10 @@ export async function categorizeImage(
       const answerJson = JSON.parse(jsonString.trim());
 
       const result: ImageCategorizationResult = {
-        category: answerJson.inspectionResult?.category || answerJson.category || 'exterior',
+        category:
+          answerJson.inspectionResult?.category ||
+          answerJson.category ||
+          "exterior",
         confidence: answerJson.confidence || 1.0,
         reasoning: answerJson.reasoning || "No reasoning provided",
         fullAnalysis: answerJson, // Store the complete LLM analysis
@@ -121,7 +121,11 @@ export async function categorizeImages(photos: Photo[]): Promise<void> {
     try {
       const result = await categorizeImage(photo.path);
       if (result) {
-        await updatePhotoWithAnalysis(photo.id, result.category, result.fullAnalysis);
+        await updatePhotoWithAnalysis(
+          photo.id,
+          result.category,
+          result.fullAnalysis
+        );
         console.log(
           `Updated photo ${photo.id} with category: ${result.category}`
         );
@@ -160,7 +164,7 @@ async function updatePhotoWithAnalysis(
 ): Promise<void> {
   try {
     const updateData: any = { category };
-    
+
     // Add llm_analysis if provided
     if (llmAnalysis) {
       updateData.llm_analysis = llmAnalysis;
@@ -177,7 +181,9 @@ async function updatePhotoWithAnalysis(
       throw error;
     }
 
-    console.log(`Successfully updated photo ${photoId} with category: ${category} and LLM analysis`);
+    console.log(
+      `Successfully updated photo ${photoId} with category: ${category} and LLM analysis`
+    );
   } catch (error) {
     console.error(`Error updating photo with analysis:`, error);
     throw error;

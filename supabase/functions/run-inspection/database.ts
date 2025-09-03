@@ -124,6 +124,7 @@ export class Database {
    */
   static async createInspectionFromVehicleData(
     vehicleData: ExtensionVehicleData,
+    extractedVehicleData: any = null,
     ctx: RequestContext
   ): Promise<{
     success: boolean;
@@ -131,15 +132,20 @@ export class Database {
     error?: string;
   }> {
     try {
+      // Use extracted data as primary source, fall back to vehicleData
+      const vin = extractedVehicleData?.Vin || vehicleData.vin;
+      const mileage = extractedVehicleData?.Mileage?.toString() || vehicleData.mileage;
+      
       // Extract relevant data for inspection
       const inspectionData = {
         email: vehicleData.email || "extension@copart.com", // Default email if not provided
         user_id: vehicleData.user_id || null, // Optional user ID
-        vin: vehicleData.vin,
-        mileage: vehicleData.mileage,
+        vin: vin,
+        mileage: mileage,
         status: "pending",
         type: "extension", // Mark as extension-sourced
         url: vehicleData.listing_url,
+        vehicle_details: extractedVehicleData, // Store complete extracted data as JSONB
         created_at: new Date().toISOString(),
       };
 

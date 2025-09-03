@@ -83,8 +83,6 @@ export function handleExtensionRequest(
 
   // Support both wrapped format (`{ "vehicleData": {...} }`) and direct format (`{ "gallery_images": ... }`)
   const vehicleData = "vehicleData" in payload ? payload.vehicleData : payload;
-  ctx.debug("VEHICLE DATA", vehicleData);
-  return
 
 
   // Generate a temporary ID for immediate feedback to the client

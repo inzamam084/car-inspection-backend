@@ -5,6 +5,26 @@ import { runInBackground } from "./utils.ts";
 import { Database } from "./database.ts";
 import type { ExtensionVehicleData } from "./schemas.ts";
 import { RequestContext } from "./logging.ts";
+import { SUPABASE_CONFIG } from "./config.ts";
+
+// Interface for the image data extraction response
+interface ImageDataExtractResponse {
+  Vin: string | null;
+  Fuel: string | null;
+  Make: string | null;
+  Year: number;
+  Model: string | null;
+  Engine: string | null;
+  Mileage: number;
+  Location: string | null;
+  "Body Style": string | null;
+  Drivetrain: string | null;
+  "Title Status": string | null;
+  Transmission: string | null;
+  "Exterior Color": string | null;
+  "Interior Color": string | null;
+  FullImageText: string | null;
+}
 
 export async function processExtensionData(
   vehicleData: ExtensionVehicleData,
@@ -22,10 +42,79 @@ export async function processExtensionData(
       images_count: vehicleData.gallery_images.length,
     });
 
-    // Create inspection record
+    // Extract vehicle data from first image using image_data_extract function
+    let extractedVehicleData: ImageDataExtractResponse | null = null;
+    if (vehicleData.page_screenshot?.storageUrl) {
+      ctx.info("Extracting vehicle data from first image", {
+        image_url: vehicleData.gallery_images[0],
+      });
+
+      try {
+        const functionCallPayload = {
+          function_name: "image_data_extract",
+          query: "Provide the results with the image url",
+          files: [
+            {
+              type: "image",
+              transfer_method: "remote_url",
+              url: vehicleData.page_screenshot?.storageUrl,
+            },
+          ],
+        };
+
+        const response = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/function-call`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+          },
+          body: JSON.stringify(functionCallPayload),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          ctx.error("Failed to call image_data_extract function", {
+            status: response.status,
+            error: errorText,
+          });
+        } else {
+          const result = await response.json();
+          if (result.success && result.payload) {
+            try {
+              extractedVehicleData = JSON.parse(result.payload);
+              ctx.info("Extracted vehicle data from image", extractedVehicleData);
+              ctx.info("Successfully extracted vehicle data from image", {
+                has_vin: !!extractedVehicleData?.Vin,
+                has_make: !!extractedVehicleData?.Make,
+                has_model: !!extractedVehicleData?.Model,
+                has_year: !!extractedVehicleData?.Year,
+              });
+            } catch (parseError) {
+              ctx.error("Failed to parse extracted vehicle data", {
+                error: (parseError as Error).message,
+                payload: result.payload,
+              });
+            }
+          } else {
+            ctx.error("Image data extraction failed", {
+              result: result,
+            });
+          }
+        }
+      } catch (error) {
+        ctx.error("Error calling image_data_extract function", {
+          error: (error as Error).message,
+        });
+      }
+    } else {
+      ctx.info("No images available for vehicle data extraction");
+    }
+
+    // Create inspection record with extracted vehicle data
     ctx.debug("Creating inspection record from vehicle data");
     const inspectionResult = await Database.createInspectionFromVehicleData(
       vehicleData,
+      extractedVehicleData,
       ctx
     );
     if (!inspectionResult.success || !inspectionResult.inspectionId) {
@@ -37,6 +126,7 @@ export async function processExtensionData(
         error: inspectionResult.error || "Failed to create inspection",
       };
     }
+    return
 
     const inspectionId = inspectionResult.inspectionId;
     ctx.setInspection(inspectionId);
