@@ -58,7 +58,7 @@ export async function handleWebhookRequest(
       vehicleDetails.Vin = inspection.vin;
     }
     if (inspection.mileage) {
-      vehicleDetails.Mileage = parseInt(inspection.mileage.toString(), 10);
+      vehicleDetails.Mileage = inspection.mileage;
     }
     
     // Update inspection with vehicle_details if we have VIN or mileage
