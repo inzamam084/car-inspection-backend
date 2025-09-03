@@ -62,6 +62,8 @@ export async function runAnalysisInBackground(
       }
     }
 
+    return
+
     // Fire-and-forget request to function-call service
     ctx.info("Sending request to function-call service for Dify workflow");
     // We don't await the streaming response since it will run in background

@@ -38,7 +38,7 @@ interface VehicleData {
   Engine?: VehicleProperty;
   Drivetrain?: VehicleProperty;
   Title_Status?: VehicleProperty;
-  VIN?: VehicleProperty;
+  Vin?: VehicleProperty;
   Mileage?: VehicleProperty;
   Location?: VehicleProperty;
   Transmission?: VehicleProperty;
@@ -71,7 +71,7 @@ function extractAvailableVehicleData(
 
   // Mapping from analysis result keys to database format keys
   const keyMapping: Record<string, keyof ImageDataExtractResponse> = {
-    VIN: "Vin",
+    Vin: "Vin",
     Make: "Make",
     Model: "Model",
     Year: "Year",
