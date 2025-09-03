@@ -161,10 +161,25 @@ async function updateInspectionVehicleDetails(
       }
     );
 
+    // Prepare update data - always include vehicle_details
+    const updateData: any = { vehicle_details: mergedVehicleDetails };
+
+    // If VIN is available, also update the vin column
+    if (vehicleDetails.Vin && typeof vehicleDetails.Vin === 'string') {
+      updateData.vin = vehicleDetails.Vin;
+      console.log(`Also updating vin column with: ${vehicleDetails.Vin}`);
+    }
+
+    // If Mileage is available, also update the mileage column
+    if (vehicleDetails.Mileage && typeof vehicleDetails.Mileage === 'number') {
+      updateData.mileage = vehicleDetails.Mileage.toString();
+      console.log(`Also updating mileage column with: ${vehicleDetails.Mileage}`);
+    }
+
     const { error } = await dbService
       .getClient()
       .from("inspections")
-      .update({ vehicle_details: mergedVehicleDetails })
+      .update(updateData)
       .eq("id", inspectionId);
 
     if (error) {
@@ -176,7 +191,7 @@ async function updateInspectionVehicleDetails(
     }
 
     console.log(
-      `Successfully updated inspection ${inspectionId} with merged vehicle details`
+      `Successfully updated inspection ${inspectionId} with merged vehicle details and direct columns`
     );
   } catch (error) {
     console.error(`Error updating inspection vehicle details:`, error);

@@ -84,7 +84,6 @@ export function handleExtensionRequest(
   // Support both wrapped format (`{ "vehicleData": {...} }`) and direct format (`{ "gallery_images": ... }`)
   const vehicleData = "vehicleData" in payload ? payload.vehicleData : payload;
 
-
   // Generate a temporary ID for immediate feedback to the client
   const tempInspectionId = `temp-${Date.now()}-${Math.random()
     .toString(36)
@@ -114,15 +113,17 @@ export function handleExtensionRequest(
     }
   });
 
-  return Promise.resolve(createJsonResponse(
-    {
-      success: true,
-      message: "Extension data processing started in background",
-      inspectionId: tempInspectionId,
-      status: "processing",
-    },
-    HTTP_STATUS.ACCEPTED
-  ));
+  return Promise.resolve(
+    createJsonResponse(
+      {
+        success: true,
+        message: "Extension data processing started in background",
+        inspectionId: tempInspectionId,
+        status: "processing",
+      },
+      HTTP_STATUS.ACCEPTED
+    )
+  );
 }
 
 /**

@@ -134,8 +134,9 @@ export class Database {
     try {
       // Use extracted data as primary source, fall back to vehicleData
       const vin = extractedVehicleData?.Vin || vehicleData.vin;
-      const mileage = extractedVehicleData?.Mileage?.toString() || vehicleData.mileage;
-      
+      const mileage =
+        extractedVehicleData?.Mileage?.toString() || vehicleData.mileage;
+
       // Extract relevant data for inspection
       const inspectionData = {
         email: vehicleData.email || "extension@copart.com", // Default email if not provided
