@@ -209,7 +209,8 @@ async function updateInspectionVehicleDetails(
  */
 export async function categorizeImage(
   imageUrl: string,
-  inspectionId?: string
+  inspectionId?: string,
+  inspectionType?: string
 ): Promise<ImageCategorizationResult | null> {
   try {
     console.log(`Categorizing image: ${imageUrl}`);
@@ -288,72 +289,115 @@ export async function categorizeImage(
       // Check if VIN was detected in the first analysis
       let finalAnalysisResult = answerJson;
       const vehicleDetails = extractAvailableVehicleData(answerJson);
-      const vinDetected = vehicleDetails.Vin && vehicleDetails.Vin.trim() !== "";
+      const vinDetected =
+        vehicleDetails.Vin && vehicleDetails.Vin.trim() !== "";
 
       // If VIN is detected, re-run the function call for verification
       if (vinDetected) {
-        console.log(`VIN detected (${vehicleDetails.Vin}), re-running analysis for verification...`);
-        
+        console.log(
+          `VIN detected (${vehicleDetails.Vin}), re-running analysis for verification...`
+        );
+
         try {
           // Make a second function call for VIN verification
-          const verificationResponse = await fetch(`${supabaseUrl}/functions/v1/function-call`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${supabaseServiceKey}`,
-            },
-            body: JSON.stringify({
-              ...functionCallPayload,
-              query: "Re-analyze this image with special focus on VIN detection accuracy."
-            }),
-          });
+          const verificationResponse = await fetch(
+            `${supabaseUrl}/functions/v1/function-call`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${supabaseServiceKey}`,
+              },
+              body: JSON.stringify({
+                ...functionCallPayload,
+                query:
+                  "Re-analyze this image with special focus on VIN detection accuracy.",
+              }),
+            }
+          );
 
           if (verificationResponse.ok) {
             const verificationData = await verificationResponse.json();
-            console.log(`VIN verification response for ${imageUrl}:`, verificationData);
+            console.log(
+              `VIN verification response for ${imageUrl}:`,
+              verificationData
+            );
 
             if (verificationData.success && verificationData.payload) {
               // Parse the verification response
               let verificationJsonString = verificationData.payload;
-              
+
               // Look for JSON block between ```json and ``` markers
-              const verificationJsonMatch = verificationJsonString.match(/```json\s*\n([\s\S]*?)\n\s*```/);
+              const verificationJsonMatch = verificationJsonString.match(
+                /```json\s*\n([\s\S]*?)\n\s*```/
+              );
               if (verificationJsonMatch) {
                 verificationJsonString = verificationJsonMatch[1];
               } else {
                 // If no markdown code block, try to find JSON object directly
-                const verificationJsonObjectMatch = verificationJsonString.match(/\{[\s\S]*\}/);
+                const verificationJsonObjectMatch =
+                  verificationJsonString.match(/\{[\s\S]*\}/);
                 if (verificationJsonObjectMatch) {
                   verificationJsonString = verificationJsonObjectMatch[0];
                 }
               }
 
               try {
-                const verificationJson = JSON.parse(verificationJsonString.trim());
-                console.log(`Using verification analysis result for ${imageUrl}`);
+                const verificationJson = JSON.parse(
+                  verificationJsonString.trim()
+                );
+                console.log(
+                  `Using verification analysis result for ${imageUrl}`
+                );
                 finalAnalysisResult = verificationJson;
               } catch (verificationParseError) {
-                console.warn(`Failed to parse verification response, using original analysis:`, verificationParseError);
+                console.warn(
+                  `Failed to parse verification response, using original analysis:`,
+                  verificationParseError
+                );
                 // Keep using the original analysis result
               }
             } else {
-              console.warn(`Verification call unsuccessful, using original analysis`);
+              console.warn(
+                `Verification call unsuccessful, using original analysis`
+              );
             }
           } else {
-            console.warn(`Verification call failed with status ${verificationResponse.status}, using original analysis`);
+            console.warn(
+              `Verification call failed with status ${verificationResponse.status}, using original analysis`
+            );
           }
         } catch (verificationError) {
-          console.warn(`Error during VIN verification, using original analysis:`, verificationError);
+          console.warn(
+            `Error during VIN verification, using original analysis:`,
+            verificationError
+          );
           // Continue with original analysis
         }
       }
 
       // Extract vehicle data from final analysis result and update inspection
-      if (inspectionId && finalAnalysisResult.vehicle) {
-        const finalVehicleDetails = extractAvailableVehicleData(finalAnalysisResult);
+      // Skip updating vehicle_details for "detail" type inspections to preserve manually entered data
+      if (
+        inspectionId &&
+        finalAnalysisResult.vehicle &&
+        inspectionType !== "detail"
+      ) {
+        const finalVehicleDetails =
+          extractAvailableVehicleData(finalAnalysisResult);
         if (Object.keys(finalVehicleDetails).length > 0) {
-          await updateInspectionVehicleDetails(inspectionId, finalVehicleDetails);
+          console.log(
+            `Updating vehicle details for inspection type: ${inspectionType}`
+          );
+          await updateInspectionVehicleDetails(
+            inspectionId,
+            finalVehicleDetails
+          );
         }
+      } else if (inspectionType === "detail") {
+        console.log(
+          `Skipping vehicle details update for "detail" type inspection ${inspectionId}`
+        );
       }
 
       // Create a copy of the analysis without vehicle data for fullAnalysis
@@ -392,7 +436,8 @@ export async function categorizeImages(
   photos: Photo[],
   inspectionId?: string,
   obd2Codes?: OBD2Code[],
-  titleImages?: TitleImage[]
+  titleImages?: TitleImage[],
+  inspectionType?: string
 ): Promise<void> {
   const totalImages =
     photos.length + (obd2Codes?.length || 0) + (titleImages?.length || 0);
@@ -411,7 +456,11 @@ export async function categorizeImages(
     categorizePromises.push(
       (async () => {
         try {
-          const result = await categorizeImage(photo.path, inspectionId);
+          const result = await categorizeImage(
+            photo.path,
+            inspectionId,
+            inspectionType
+          );
           if (result) {
             await updatePhotoWithAnalysis(
               photo.id,
@@ -449,7 +498,8 @@ export async function categorizeImages(
           try {
             const result = await categorizeImage(
               obd2.screenshot_path!,
-              inspectionId
+              inspectionId,
+              inspectionType
             );
             if (result) {
               await updateOBD2WithAnalysis(obd2.id, result.fullAnalysis);
@@ -473,7 +523,11 @@ export async function categorizeImages(
       categorizePromises.push(
         (async () => {
           try {
-            const result = await categorizeImage(titleImage.path, inspectionId);
+            const result = await categorizeImage(
+              titleImage.path,
+              inspectionId,
+              inspectionType
+            );
             if (result) {
               await updateTitleImageWithAnalysis(
                 titleImage.id,

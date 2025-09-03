@@ -48,6 +48,44 @@ export async function handleWebhookRequest(
     );
   }
 
+  // For type "detail", save VIN and mileage to vehicle_details before starting analysis
+  if (inspection.type === "detail") {
+    ctx.info("Processing detail type inspection - saving VIN and mileage to vehicle_details");
+    
+    // Prepare vehicle details with VIN and mileage
+    const vehicleDetails: any = {};
+    if (inspection.vin) {
+      vehicleDetails.Vin = inspection.vin;
+    }
+    if (inspection.mileage) {
+      vehicleDetails.Mileage = parseInt(inspection.mileage.toString(), 10);
+    }
+    
+    // Update inspection with vehicle_details if we have VIN or mileage
+    if (Object.keys(vehicleDetails).length > 0) {
+      try {
+        const { error: updateError } = await Database.getSupabaseClient()
+          .from("inspections")
+          .update({ vehicle_details: vehicleDetails })
+          .eq("id", inspectionId);
+          
+        if (updateError) {
+          ctx.error("Failed to update vehicle_details for detail type inspection", {
+            error: updateError.message,
+          });
+        } else {
+          ctx.info("Successfully updated vehicle_details for detail type inspection", {
+            vehicle_details: vehicleDetails,
+          });
+        }
+      } catch (error) {
+        ctx.error("Error updating vehicle_details for detail type inspection", {
+          error: (error as Error).message,
+        });
+      }
+    }
+  }
+
   // Decide which pipeline to invoke and run in the background
   if (inspection.type === "url") {
     ctx.info("Starting scrape-then-analysis pipeline in background");
