@@ -33,7 +33,8 @@ export class DatabaseService {
           category,
           path,
           storage,
-          converted_path
+          converted_path,
+          llm_analysis
         ),
         obd2_codes (
           id,
@@ -41,13 +42,15 @@ export class DatabaseService {
           description,
           screenshot_path,
           storage,
-          converted_path
+          converted_path,
+          llm_analysis
         ),
         title_images (
           id,
           path,
           storage,
-          converted_path
+          converted_path,
+          llm_analysis
         )
       `
       )

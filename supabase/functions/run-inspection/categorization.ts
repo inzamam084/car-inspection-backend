@@ -1,7 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { supabase } from "./config.ts";
 import { createDatabaseService } from "../shared/database-service.ts";
-import type { Photo, ImageCategorizationResult } from "./schemas.ts";
+import type {
+  Photo,
+  OBD2Code,
+  TitleImage,
+  ImageCategorizationResult,
+} from "./schemas.ts";
 
 // Initialize database service
 const dbService = createDatabaseService();
@@ -94,9 +99,10 @@ function extractAvailableVehicleData(
       if (dbKey) {
         // Handle type conversion for numeric fields
         if (dbKey === "Year" || dbKey === "Mileage") {
-          const numValue = typeof property.value === "string" 
-            ? parseInt(property.value, 10) 
-            : property.value;
+          const numValue =
+            typeof property.value === "string"
+              ? parseInt(property.value, 10)
+              : property.value;
           if (!isNaN(numValue as number)) {
             (vehicleDetails as any)[dbKey] = numValue;
           }
@@ -152,28 +158,27 @@ async function updateInspectionVehicleDetails(
       ...vehicleDetails,
     };
 
-    console.log(
-      `Merging vehicle details for inspection ${inspectionId}:`,
-      {
-        existing: existingVehicleDetails,
-        new: vehicleDetails,
-        merged: mergedVehicleDetails,
-      }
-    );
+    console.log(`Merging vehicle details for inspection ${inspectionId}:`, {
+      existing: existingVehicleDetails,
+      new: vehicleDetails,
+      merged: mergedVehicleDetails,
+    });
 
     // Prepare update data - always include vehicle_details
     const updateData: any = { vehicle_details: mergedVehicleDetails };
 
     // If VIN is available, also update the vin column
-    if (vehicleDetails.Vin && typeof vehicleDetails.Vin === 'string') {
+    if (vehicleDetails.Vin && typeof vehicleDetails.Vin === "string") {
       updateData.vin = vehicleDetails.Vin;
       console.log(`Also updating vin column with: ${vehicleDetails.Vin}`);
     }
 
     // If Mileage is available, also update the mileage column
-    if (vehicleDetails.Mileage && typeof vehicleDetails.Mileage === 'number') {
+    if (vehicleDetails.Mileage && typeof vehicleDetails.Mileage === "number") {
       updateData.mileage = vehicleDetails.Mileage.toString();
-      console.log(`Also updating mileage column with: ${vehicleDetails.Mileage}`);
+      console.log(
+        `Also updating mileage column with: ${vehicleDetails.Mileage}`
+      );
     }
 
     const { error } = await dbService
@@ -290,7 +295,7 @@ export async function categorizeImage(
 
       // Create a copy of the analysis without vehicle data for fullAnalysis
       const analysisWithoutVehicle = { ...answerJson };
-      // delete analysisWithoutVehicle.vehicle;
+      delete analysisWithoutVehicle.vehicle;
 
       const result: ImageCategorizationResult = {
         category:
@@ -299,7 +304,7 @@ export async function categorizeImage(
           "exterior",
         confidence: answerJson.confidence || 1.0,
         reasoning: answerJson.reasoning || "No reasoning provided",
-        fullAnalysis: answerJson,
+        fullAnalysis: analysisWithoutVehicle,
       };
 
       console.log(
@@ -318,35 +323,113 @@ export async function categorizeImage(
 }
 
 /**
- * Categorize multiple images in batch
+ * Categorize multiple images in batch - supports photos, OBD2 codes, and title images
  */
 export async function categorizeImages(
   photos: Photo[],
-  inspectionId?: string
+  inspectionId?: string,
+  obd2Codes?: OBD2Code[],
+  titleImages?: TitleImage[]
 ): Promise<void> {
-  console.log(`Starting categorization for ${photos.length} images`);
+  const totalImages =
+    photos.length + (obd2Codes?.length || 0) + (titleImages?.length || 0);
+  console.log(
+    `Starting categorization for ${totalImages} images (${
+      photos.length
+    } photos, ${obd2Codes?.length || 0} OBD2 codes, ${
+      titleImages?.length || 0
+    } title images)`
+  );
 
-  const categorizePromises = photos.map(async (photo) => {
-    try {
-      const result = await categorizeImage(photo.path, inspectionId);
-      if (result) {
-        await updatePhotoWithAnalysis(
-          photo.id,
-          result.category,
-          result.fullAnalysis
-        );
-        console.log(
-          `Updated photo ${photo.id} with category: ${result.category}`
-        );
-      } else {
-        console.warn(
-          `Failed to categorize photo ${photo.id}, keeping existing category: ${photo.category}`
-        );
-      }
-    } catch (error) {
-      console.error(`Error processing photo ${photo.id}:`, error);
-    }
+  const categorizePromises: Promise<void>[] = [];
+
+  // Process regular photos
+  photos.forEach((photo) => {
+    categorizePromises.push(
+      (async () => {
+        try {
+          const result = await categorizeImage(photo.path, inspectionId);
+          if (result) {
+            await updatePhotoWithAnalysis(
+              photo.id,
+              result.category,
+              result.fullAnalysis
+            );
+            console.log(
+              `Updated photo ${photo.id} with category: ${result.category}`
+            );
+          } else {
+            console.warn(
+              `Failed to categorize photo ${photo.id}, keeping existing category: ${photo.category}`
+            );
+          }
+        } catch (error) {
+          console.error(`Error processing photo ${photo.id}:`, error);
+        }
+      })()
+    );
   });
+
+  // Process OBD2 codes with images (where code = "IMG")
+  if (obd2Codes) {
+    const obd2ImagesWithScreenshots = obd2Codes.filter(
+      (obd2) => obd2.code === "IMG" && obd2.screenshot_path
+    );
+
+    console.log(
+      `Found ${obd2ImagesWithScreenshots.length} OBD2 codes with images to process`
+    );
+
+    obd2ImagesWithScreenshots.forEach((obd2) => {
+      categorizePromises.push(
+        (async () => {
+          try {
+            const result = await categorizeImage(
+              obd2.screenshot_path!,
+              inspectionId
+            );
+            if (result) {
+              await updateOBD2WithAnalysis(obd2.id, result.fullAnalysis);
+              console.log(`Updated OBD2 code ${obd2.id} with analysis`);
+            } else {
+              console.warn(`Failed to categorize OBD2 code ${obd2.id}`);
+            }
+          } catch (error) {
+            console.error(`Error processing OBD2 code ${obd2.id}:`, error);
+          }
+        })()
+      );
+    });
+  }
+
+  // Process title images
+  if (titleImages) {
+    console.log(`Processing ${titleImages.length} title images`);
+
+    titleImages.forEach((titleImage) => {
+      categorizePromises.push(
+        (async () => {
+          try {
+            const result = await categorizeImage(titleImage.path, inspectionId);
+            if (result) {
+              await updateTitleImageWithAnalysis(
+                titleImage.id,
+                result.fullAnalysis
+              );
+              console.log(`Updated title image ${titleImage.id} with analysis`);
+            } else {
+              console.warn(`Failed to categorize title image ${titleImage.id}`);
+            }
+          } catch (error) {
+            console.error(
+              `Error processing title image ${titleImage.id}:`,
+              error
+            );
+          }
+        })()
+      );
+    });
+  }
 
   // Process images with some concurrency but not too many at once to avoid rate limits
   const batchSize = 3;
@@ -360,7 +443,7 @@ export async function categorizeImages(
     }
   }
 
-  console.log(`Completed categorization for ${photos.length} images`);
+  console.log(`Completed categorization for ${totalImages} images`);
 }
 
 /**
@@ -395,6 +478,74 @@ async function updatePhotoWithAnalysis(
     );
   } catch (error) {
     console.error(`Error updating photo with analysis:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Update OBD2 code with LLM analysis in the database
+ */
+async function updateOBD2WithAnalysis(
+  obd2Id: string,
+  llmAnalysis?: any
+): Promise<void> {
+  try {
+    const updateData: any = {};
+
+    // Add llm_analysis if provided
+    if (llmAnalysis) {
+      updateData.llm_analysis = llmAnalysis;
+    }
+
+    const { error } = await dbService
+      .getClient()
+      .from("obd2_codes")
+      .update(updateData)
+      .eq("id", obd2Id);
+
+    if (error) {
+      console.error(`Failed to update OBD2 code ${obd2Id}:`, error);
+      throw error;
+    }
+
+    console.log(`Successfully updated OBD2 code ${obd2Id} with LLM analysis`);
+  } catch (error) {
+    console.error(`Error updating OBD2 code with analysis:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Update title image with LLM analysis in the database
+ */
+async function updateTitleImageWithAnalysis(
+  titleImageId: string,
+  llmAnalysis?: any
+): Promise<void> {
+  try {
+    const updateData: any = {};
+
+    // Add llm_analysis if provided
+    if (llmAnalysis) {
+      updateData.llm_analysis = llmAnalysis;
+    }
+
+    const { error } = await dbService
+      .getClient()
+      .from("title_images")
+      .update(updateData)
+      .eq("id", titleImageId);
+
+    if (error) {
+      console.error(`Failed to update title image ${titleImageId}:`, error);
+      throw error;
+    }
+
+    console.log(
+      `Successfully updated title image ${titleImageId} with LLM analysis`
+    );
+  } catch (error) {
+    console.error(`Error updating title image with analysis:`, error);
     throw error;
   }
 }

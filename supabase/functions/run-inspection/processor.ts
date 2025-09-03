@@ -31,6 +31,8 @@ export async function runAnalysisInBackground(
 
     // Extract data from the batched result
     var photos = inspectionData.photos || [];
+    var obd2_codes = inspectionData.obd2_codes || [];
+    var title_images = inspectionData.title_images || [];
 
     if (photos.length === 0) {
       ctx.error("No photos found for inspection");
@@ -44,16 +46,24 @@ export async function runAnalysisInBackground(
     });
 
     // Update status to analyzing
-    ctx.debug("Updating inspection status to analyzing");
-    await Database.updateInspectionStatus(inspectionId, "analyzing");
+    // ctx.debug("Updating inspection status to analyzing");
+    // await Database.updateInspectionStatus(inspectionId, "analyzing");
 
     // Categorize images using Dify API (only for non-URL inspections)
-    if (inspectionData.type !== "url" && photos.length > 0) {
+    if (
+      inspectionData.type !== "url" &&
+      (photos.length > 0 || obd2_codes.length > 0 || title_images.length > 0)
+    ) {
+      const totalImages =
+        photos.length + obd2_codes.length + title_images.length;
       ctx.info("Starting image categorization", {
         photos_count: photos.length,
+        obd2_codes_count: obd2_codes.length,
+        title_images_count: title_images.length,
+        total_images: totalImages,
       });
       try {
-        await categorizeImages(photos, inspectionId);
+        await categorizeImages(photos, inspectionId, obd2_codes, title_images);
         ctx.info("Image categorization completed successfully");
       } catch (error) {
         ctx.warn("Image categorization failed, continuing with analysis", {
@@ -61,8 +71,6 @@ export async function runAnalysisInBackground(
         });
       }
     }
-
-    return
 
     // Fire-and-forget request to function-call service
     ctx.info("Sending request to function-call service for Dify workflow");
