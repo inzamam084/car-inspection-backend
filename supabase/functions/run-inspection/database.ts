@@ -7,7 +7,7 @@ import { RequestContext } from "./logging.ts";
 const dbService = createDatabaseService();
 
 /**
- * Centralized database operations for run-inspection
+ * Centralized database operations for run-inspection 
  */
 export class Database {
   /**
