@@ -64,7 +64,13 @@ export async function runAnalysisInBackground(
         inspection_type: inspectionData.type,
       });
       try {
-        await categorizeImages(photos, inspectionId, obd2_codes, title_images, inspectionData.type);
+        await categorizeImages(
+          photos,
+          inspectionId,
+          obd2_codes,
+          title_images,
+          inspectionData.type
+        );
         ctx.info("Image categorization completed successfully");
       } catch (error) {
         ctx.warn("Image categorization failed, continuing with analysis", {

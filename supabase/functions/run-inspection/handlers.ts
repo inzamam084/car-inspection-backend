@@ -50,8 +50,10 @@ export async function handleWebhookRequest(
 
   // For type "detail", save VIN and mileage to vehicle_details before starting analysis
   if (inspection.type === "detail") {
-    ctx.info("Processing detail type inspection - saving VIN and mileage to vehicle_details");
-    
+    ctx.info(
+      "Processing detail type inspection - saving VIN and mileage to vehicle_details"
+    );
+
     // Prepare vehicle details with VIN and mileage
     const vehicleDetails: any = {};
     if (inspection.vin) {
@@ -60,7 +62,7 @@ export async function handleWebhookRequest(
     if (inspection.mileage) {
       vehicleDetails.Mileage = inspection.mileage;
     }
-    
+
     // Update inspection with vehicle_details if we have VIN or mileage
     if (Object.keys(vehicleDetails).length > 0) {
       try {
@@ -68,15 +70,21 @@ export async function handleWebhookRequest(
           .from("inspections")
           .update({ vehicle_details: vehicleDetails })
           .eq("id", inspectionId);
-          
+
         if (updateError) {
-          ctx.error("Failed to update vehicle_details for detail type inspection", {
-            error: updateError.message,
-          });
+          ctx.error(
+            "Failed to update vehicle_details for detail type inspection",
+            {
+              error: updateError.message,
+            }
+          );
         } else {
-          ctx.info("Successfully updated vehicle_details for detail type inspection", {
-            vehicle_details: vehicleDetails,
-          });
+          ctx.info(
+            "Successfully updated vehicle_details for detail type inspection",
+            {
+              vehicle_details: vehicleDetails,
+            }
+          );
         }
       } catch (error) {
         ctx.error("Error updating vehicle_details for detail type inspection", {

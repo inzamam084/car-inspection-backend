@@ -20,7 +20,7 @@ export class Database {
 
     const { data: inspection, error } = await supabase
       .from("inspections")
-      .select("id, vin, email, type, url")
+      .select("id, vin, email, type, url, mileage")
       .eq("id", inspectionId)
       .single();
 
