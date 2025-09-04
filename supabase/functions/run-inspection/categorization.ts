@@ -380,8 +380,8 @@ export async function categorizeImage(
       // Skip updating vehicle_details for "detail" type inspections to preserve manually entered data
       if (
         inspectionId &&
-        finalAnalysisResult.vehicle &&
-        inspectionType !== "detail"
+        finalAnalysisResult.vehicle
+        // inspectionType !== "detail"
       ) {
         const finalVehicleDetails =
           extractAvailableVehicleData(finalAnalysisResult);
