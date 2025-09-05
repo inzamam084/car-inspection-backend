@@ -36,7 +36,7 @@ export async function sendToDifyAPI(
   try {
     // Prepare payload for function-call service
     const functionCallPayload = {
-      function_name: "car_inspection_workflow", // This should match the function name in dify_function_mapping table
+      function_name: "car_inspection_workflow_old", // This should match the function name in dify_function_mapping table
       response_mode: "streaming",
       // user_id: `inspection_${inspectionId}`,
       inspection_id: inspectionId,
