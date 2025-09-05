@@ -43,7 +43,7 @@ export async function categorizeImage(
     }
 
     // Call the function-call edge function
-    const response = await fetch(`${supabaseUrl}/functions/v1/function-call`, {
+    const response = await fetch(`${supabaseUrl}/functions/v1/function-call-old`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

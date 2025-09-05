@@ -52,7 +52,7 @@ export async function sendToDifyAPI(
     });
 
     // Get the function-call service URL (assuming it's deployed as a Supabase Edge Function)
-    const functionCallUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/function-call`;
+    const functionCallUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/function-call-old`;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
 
     // Fire-and-forget request to function-call service
