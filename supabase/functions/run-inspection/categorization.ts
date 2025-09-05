@@ -125,7 +125,8 @@ interface AnalysisResult {
  * Extract available vehicle data from analysis result and map to database format
  */
 function extractAvailableVehicleData(
-  analysisResult: AnalysisResult
+  analysisResult: AnalysisResult,
+  inspectionType?: string
 ): Partial<ImageDataExtractResponse> {
   const vehicleDetails: Partial<ImageDataExtractResponse> = {};
 
@@ -156,6 +157,12 @@ function extractAvailableVehicleData(
     if (property && property.available && property.value !== "N/A") {
       const dbKey = keyMapping[key];
       if (dbKey) {
+        // Skip VIN and Mileage for "detail" type inspections to preserve manually entered data
+        if (inspectionType === "detail" && (dbKey === "Vin" || dbKey === "Mileage")) {
+          console.log(`Skipping ${dbKey} extraction for "detail" type inspection`);
+          return;
+        }
+
         // Handle type conversion for numeric fields
         if (dbKey === "Year" || dbKey === "Mileage") {
           const numValue =
@@ -358,7 +365,7 @@ export async function categorizeImage(
 
       // Check if VIN was detected in the first analysis
       let finalAnalysisResult = answerJson;
-      const vehicleDetails = extractAvailableVehicleData(answerJson);
+      const vehicleDetails = extractAvailableVehicleData(answerJson, inspectionType);
       const vinDetected =
         vehicleDetails.Vin && vehicleDetails.Vin.trim() !== "";
 
@@ -459,7 +466,7 @@ export async function categorizeImage(
         // inspectionType !== "detail"
       ) {
         const finalVehicleDetails =
-          extractAvailableVehicleData(finalAnalysisResult);
+          extractAvailableVehicleData(finalAnalysisResult, inspectionType);
         if (Object.keys(finalVehicleDetails).length > 0) {
           console.log(
             `Updating vehicle details for inspection type: ${inspectionType}`
