@@ -36,7 +36,7 @@ export async function sendToDifyAPI(
   try {
     // Prepare payload for function-call service
     const functionCallPayload = {
-      function_name: "car_inspection_workflow", // This should match the function name in dify_function_mapping table
+      function_name: "car_inspection_workflow_old", // This should match the function name in dify_function_mapping table
       response_mode: "streaming",
       // user_id: `inspection_${inspectionId}`,
       inspection_id: inspectionId,
@@ -52,7 +52,7 @@ export async function sendToDifyAPI(
     });
 
     // Get the function-call service URL (assuming it's deployed as a Supabase Edge Function)
-    const functionCallUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/function-call`;
+    const functionCallUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/function-call-old`;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
 
     // Fire-and-forget request to function-call service

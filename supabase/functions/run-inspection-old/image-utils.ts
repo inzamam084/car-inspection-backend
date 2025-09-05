@@ -1,3 +1,27 @@
+/**
+ * Consolidated image processing utilities
+ */
+
+/**
+ * Get full image URL from path
+ */
+export function getFullImageUrl(path: string): string {
+  // If it's already a full URL, return as is
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    return path;
+  }
+
+  // @ts-ignore: Deno global is available in Supabase Edge Functions
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+
+  // If it's a Supabase storage path, construct the full URL
+  if (path.startsWith("inspection-photos/")) {
+    return `${supabaseUrl}/storage/v1/object/public/${path}`;
+  }
+
+  // Default case - assume it's a relative path to Supabase storage
+  return `${supabaseUrl}/storage/v1/object/public/inspection-photos/${path}`;
+}
 
 /**
  * Generate a categorized filename for image storage

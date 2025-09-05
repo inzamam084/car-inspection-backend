@@ -107,7 +107,6 @@ export interface ImageCategorizationResult {
   category: 'exterior' | 'interior' | 'dashboard' | 'engine' | 'undercarriage' | 'paint' | 'rust' | 'obd' | 'title' | 'records';
   confidence: number;
   reasoning: string;
-  fullAnalysis?: any; // Store the complete LLM analysis JSON
 }
 
 export interface DifyApiRequest {
@@ -159,10 +158,3 @@ export interface UploadResult {
   category?: string;
   error?: string;
 }
-
-export type InspectionStatus =
-  | "pending"
-  | "processing"
-  | "analyzing"
-  | "completed"
-  | "failed";

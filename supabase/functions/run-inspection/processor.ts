@@ -1,96 +1,141 @@
 import { APP_BASE_URL, SUPABASE_CONFIG } from "./config.ts";
-import { createDatabaseService } from "../shared/database-service.ts";
 import { categorizeImages } from "./categorization.ts";
-import { StatusManager } from "./status-manager.ts";
-import type { Inspection, ProcessingJob, ChunkImage } from "./schemas.ts";
-
-// Initialize optimized database service
-const dbService = createDatabaseService();
+import { Database } from "./database.ts";
+import type { Inspection } from "./schemas.ts";
+import { RequestContext } from "./logging.ts";
 
 // Background analysis function
 export async function runAnalysisInBackground(
-  inspectionId: string
+  inspectionId: string,
+  ctx: RequestContext
 ): Promise<void> {
   try {
-    console.log(`Starting background analysis for inspection ${inspectionId}`);
+    ctx.info("Starting background analysis", { inspection_id: inspectionId });
 
     // Update status to processing
-    await dbService.updateInspectionStatus(inspectionId, "processing");
+    ctx.debug("Updating inspection status to processing");
+    await Database.updateInspectionStatus(inspectionId, "processing");
 
     // Batch fetch all inspection data in a single query
+    ctx.debug("Fetching inspection data from database");
     const { data: inspectionData, error: inspectionError } =
-      await dbService.batchFetchInspectionData(inspectionId);
+      await Database.batchFetchInspectionData(inspectionId);
 
     if (inspectionError || !inspectionData) {
-      console.error("Error fetching inspection data:", inspectionError);
-      await dbService.updateInspectionStatus(inspectionId, "failed");
+      ctx.error("Error fetching inspection data", {
+        error: inspectionError?.message,
+      });
+      await Database.updateInspectionStatus(inspectionId, "failed");
       return;
     }
 
     // Extract data from the batched result
     var photos = inspectionData.photos || [];
-    
+    var obd2_codes = inspectionData.obd2_codes || [];
+    var title_images = inspectionData.title_images || [];
+
     if (photos.length === 0) {
-      console.error("No photos found for inspection");
-      await dbService.updateInspectionStatus(inspectionId, "failed");
+      ctx.error("No photos found for inspection");
+      await Database.updateInspectionStatus(inspectionId, "failed");
       return;
     }
+
+    ctx.info("Inspection data retrieved successfully", {
+      photos_count: photos.length,
+      inspection_type: inspectionData.type,
+    });
 
     // Update status to analyzing
-    await dbService.updateInspectionStatus(inspectionId, "analyzing");
+    // ctx.debug("Updating inspection status to analyzing");
+    // await Database.updateInspectionStatus(inspectionId, "analyzing");
 
     // Categorize images using Dify API (only for non-URL inspections)
-    if (inspectionData.type !== "url" && photos.length > 0) {
-      console.log(`Starting image categorization for ${photos.length} photos`);
+    if (
+      inspectionData.type !== "url" &&
+      (photos.length > 0 || obd2_codes.length > 0 || title_images.length > 0)
+    ) {
+      const totalImages =
+        photos.length + obd2_codes.length + title_images.length;
+      ctx.info("Starting image categorization", {
+        photos_count: photos.length,
+        obd2_codes_count: obd2_codes.length,
+        title_images_count: title_images.length,
+        total_images: totalImages,
+        inspection_type: inspectionData.type,
+      });
       try {
-        await categorizeImages(photos);
-        console.log("Image categorization completed successfully");
+        await categorizeImages(
+          photos,
+          inspectionId,
+          obd2_codes,
+          title_images,
+          inspectionData.type
+        );
+        ctx.info("Image categorization completed successfully");
       } catch (error) {
-        console.error("Image categorization failed:", error);
-        // Continue with the process even if categorization fails
+        ctx.warn("Image categorization failed, continuing with analysis", {
+          error: (error as Error).message,
+        });
       }
     }
 
-    // Trigger the first chunk processing
-    const triggerResponse = await fetch(
-      `${SUPABASE_CONFIG.url}/functions/v1/process-next-chunk`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
-        },
-        body: JSON.stringify({
-          inspection_id: inspectionId,
-          completed_sequence: 0,
-        }),
-      }
-    );
+    // Fire-and-forget request to function-call service
+    ctx.info("Sending request to function-call service for Dify workflow");
+    // We don't await the streaming response since it will run in background
+    fetch(`${SUPABASE_CONFIG.url}/functions/v1/function-call`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+      },
+      body: JSON.stringify({
+        function_name: "car_inspection_workflow",
+        response_mode: "streaming",
+        inspection_id: inspectionId,
+      }),
+    })
+      .then(async (functionCallResponse) => {
+        if (!functionCallResponse.ok) {
+          const errorText = await functionCallResponse.text();
+          ctx.error("Function-call service request failed", {
+            status: functionCallResponse.status,
+            status_text: functionCallResponse.statusText,
+            error_text: errorText,
+          });
+          return;
+        }
 
-    if (!triggerResponse.ok) {
-      console.error("Error triggering first chunk processing");
-      await dbService.updateInspectionStatus(inspectionId, "failed");
-      return;
-    }
+        ctx.info(
+          "Successfully initiated Dify workflow via function-call service"
+        );
 
-    console.log(
-      `Successfully triggered queue-based processing for inspection ${inspectionId}`
-    );
+        // The streaming response will be handled entirely by the function-call service
+        // We don't need to process the stream here since it's fire-and-forget
+      })
+      .catch((error) => {
+        ctx.error("Error sending data to function-call service", {
+          error: (error as Error).message,
+        });
+      });
+
+    ctx.info("Dify workflow request sent to function-call service");
     return;
   } catch (error) {
-    console.error(
-      `Background analysis failed for inspection ${inspectionId}:`,
-      error
-    );
-    await dbService.updateInspectionStatus(inspectionId, "failed");
+    ctx.error("Background analysis failed", {
+      error: (error as Error).message,
+    });
+    await Database.updateInspectionStatus(inspectionId, "failed");
   }
 }
 // Helper that chains scrape → analysis
 export async function runScrapeThenAnalysis(
-  inspection: Inspection
+  inspection: Inspection,
+  ctx: RequestContext
 ): Promise<void> {
   try {
-    console.log(`Starting scrape for inspection ${inspection.id}`);
+    ctx.info("Starting scrape for inspection", {
+      inspection_id: inspection.id,
+    });
 
     const scrapeRes = await fetch(`${APP_BASE_URL}/api/scrape-vehicle-images`, {
       method: "POST",
@@ -109,13 +154,16 @@ export async function runScrapeThenAnalysis(
       throw new Error(`Scrape failed: ${scrapeRes.statusText}`);
     }
 
-    console.log(
-      `Scrape succeeded for inspection ${inspection.id}, starting analysis`
-    );
-    await runAnalysisInBackground(inspection.id);
+    ctx.info("Scrape succeeded, starting analysis", {
+      inspection_id: inspection.id,
+    });
+    await runAnalysisInBackground(inspection.id, ctx);
   } catch (err) {
-    console.error(`Error in scrape→analysis for ${inspection.id}:`, err);
+    ctx.error("Error in scrape→analysis pipeline", {
+      inspection_id: inspection.id,
+      error: (err as Error).message,
+    });
     // Optionally mark inspection as failed
-    await dbService.updateInspectionStatus(inspection.id, "failed");
+    await Database.updateInspectionStatus(inspection.id, "failed");
   }
 }
