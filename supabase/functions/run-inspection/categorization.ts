@@ -8,6 +8,65 @@ import type {
   ImageCategorizationResult,
 } from "./schemas.ts";
 
+// Retry configuration for image categorization
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 1000, // Start with 1 second
+  maxDelayMs: 10000, // Cap at 10 seconds
+  backoffMultiplier: 2,
+};
+
+// Helper function for retry with exponential backoff
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  operationName: string,
+  config = RETRY_CONFIG
+): Promise<T> {
+  let lastError: Error;
+  
+  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = Math.min(
+          config.baseDelayMs * Math.pow(config.backoffMultiplier, attempt - 1),
+          config.maxDelayMs
+        );
+        
+        console.log(`Retrying ${operationName}`, {
+          attempt: attempt + 1,
+          maxRetries: config.maxRetries + 1,
+          delayMs: delay,
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+      
+      if (attempt === config.maxRetries) {
+        console.error(`${operationName} failed after ${config.maxRetries + 1} attempts`, {
+          error: lastError.message,
+          totalAttempts: attempt + 1,
+        });
+        throw lastError;
+      }
+      
+      console.warn(`${operationName} failed, will retry`, {
+        attempt: attempt + 1,
+        error: lastError.message,
+        nextRetryIn: Math.min(
+          config.baseDelayMs * Math.pow(config.backoffMultiplier, attempt),
+          config.maxDelayMs
+        ),
+      });
+    }
+  }
+  
+  throw lastError!;
+}
+
 // Initialize database service
 const dbService = createDatabaseService();
 
@@ -239,30 +298,41 @@ export async function categorizeImage(
       return null;
     }
 
-    // Call the function-call edge function
-    const response = await fetch(`${supabaseUrl}/functions/v1/function-call`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${supabaseServiceKey}`,
-      },
-      body: JSON.stringify(functionCallPayload),
-    });
+    // Call the function-call edge function with retry logic
+    let data;
+    try {
+      data = await retryWithBackoff(
+        async () => {
+          const response = await fetch(`${supabaseUrl}/functions/v1/function-call`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify(functionCallPayload),
+          });
 
-    if (!response.ok) {
-      console.error(
-        `Function-call request failed: ${response.status} ${response.statusText}`
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+          }
+
+          const data = await response.json();
+          
+          if (!data.success || !data.payload) {
+            throw new Error(`Function call failed: ${JSON.stringify(data)}`);
+          }
+          
+          return data;
+        },
+        `image categorization for ${imageUrl}`
       );
-      const errorText = await response.text();
-      console.error("Error response:", errorText);
-      return null;
-    }
-
-    const data = await response.json();
-    console.log(`Function-call response for ${imageUrl}:`, data);
-
-    if (!data.success || !data.payload) {
-      console.error("Function-call returned unsuccessful response:", data);
+      
+      console.log(`Function-call response for ${imageUrl}:`, data);
+    } catch (error) {
+      console.warn(`Image categorization failed after retries for ${imageUrl}, skipping`, {
+        error: (error as Error).message,
+      });
       return null;
     }
 
@@ -299,77 +369,82 @@ export async function categorizeImage(
         );
 
         try {
-          // Make a second function call for VIN verification
-          const verificationResponse = await fetch(
-            `${supabaseUrl}/functions/v1/function-call`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${supabaseServiceKey}`,
-              },
-              body: JSON.stringify({
-                ...functionCallPayload,
-                query:
-                  "Re-analyze this image with special focus on VIN detection accuracy.",
-              }),
-            }
+          // Make a second function call for VIN verification with retry logic
+          const verificationData = await retryWithBackoff(
+            async () => {
+              const verificationResponse = await fetch(
+                `${supabaseUrl}/functions/v1/function-call`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${supabaseServiceKey}`,
+                  },
+                  body: JSON.stringify({
+                    ...functionCallPayload,
+                    query:
+                      "Re-analyze this image with special focus on VIN detection accuracy.",
+                  }),
+                }
+              );
+
+              if (!verificationResponse.ok) {
+                const errorText = await verificationResponse.text();
+                throw new Error(`HTTP ${verificationResponse.status}: ${errorText}`);
+              }
+
+              const verificationData = await verificationResponse.json();
+              
+              if (!verificationData.success || !verificationData.payload) {
+                throw new Error(`VIN verification failed: ${JSON.stringify(verificationData)}`);
+              }
+              
+              return verificationData;
+            },
+            `VIN verification for ${imageUrl}`
           );
 
-          if (verificationResponse.ok) {
-            const verificationData = await verificationResponse.json();
-            console.log(
-              `VIN verification response for ${imageUrl}:`,
-              verificationData
-            );
+          console.log(
+            `VIN verification response for ${imageUrl}:`,
+            verificationData
+          );
 
-            if (verificationData.success && verificationData.payload) {
-              // Parse the verification response
-              let verificationJsonString = verificationData.payload;
+          // Parse the verification response
+          let verificationJsonString = verificationData.payload;
 
-              // Look for JSON block between ```json and ``` markers
-              const verificationJsonMatch = verificationJsonString.match(
-                /```json\s*\n([\s\S]*?)\n\s*```/
-              );
-              if (verificationJsonMatch) {
-                verificationJsonString = verificationJsonMatch[1];
-              } else {
-                // If no markdown code block, try to find JSON object directly
-                const verificationJsonObjectMatch =
-                  verificationJsonString.match(/\{[\s\S]*\}/);
-                if (verificationJsonObjectMatch) {
-                  verificationJsonString = verificationJsonObjectMatch[0];
-                }
-              }
-
-              try {
-                const verificationJson = JSON.parse(
-                  verificationJsonString.trim()
-                );
-                console.log(
-                  `Using verification analysis result for ${imageUrl}`
-                );
-                finalAnalysisResult = verificationJson;
-              } catch (verificationParseError) {
-                console.warn(
-                  `Failed to parse verification response, using original analysis:`,
-                  verificationParseError
-                );
-                // Keep using the original analysis result
-              }
-            } else {
-              console.warn(
-                `Verification call unsuccessful, using original analysis`
-              );
-            }
+          // Look for JSON block between ```json and ``` markers
+          const verificationJsonMatch = verificationJsonString.match(
+            /```json\s*\n([\s\S]*?)\n\s*```/
+          );
+          if (verificationJsonMatch) {
+            verificationJsonString = verificationJsonMatch[1];
           } else {
-            console.warn(
-              `Verification call failed with status ${verificationResponse.status}, using original analysis`
+            // If no markdown code block, try to find JSON object directly
+            const verificationJsonObjectMatch =
+              verificationJsonString.match(/\{[\s\S]*\}/);
+            if (verificationJsonObjectMatch) {
+              verificationJsonString = verificationJsonObjectMatch[0];
+            }
+          }
+
+          try {
+            const verificationJson = JSON.parse(
+              verificationJsonString.trim()
             );
+            console.log(
+              `Using verification analysis result for ${imageUrl}`
+            );
+            finalAnalysisResult = verificationJson;
+          } catch (verificationParseError) {
+            console.warn(
+              `Failed to parse verification response, using original analysis:`,
+              verificationParseError
+            );
+            // Keep using the original analysis result
           }
         } catch (verificationError) {
           console.warn(
-            `Error during VIN verification, using original analysis:`,
+            `VIN verification failed after retries, using original analysis:`,
             verificationError
           );
           // Continue with original analysis

@@ -7,6 +7,66 @@ import type { ExtensionVehicleData } from "./schemas.ts";
 import { RequestContext } from "./logging.ts";
 import { SUPABASE_CONFIG } from "./config.ts";
 
+// Retry configuration
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 1000, // Start with 1 second
+  maxDelayMs: 10000, // Cap at 10 seconds
+  backoffMultiplier: 2,
+};
+
+// Helper function for retry with exponential backoff
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  ctx: RequestContext,
+  operationName: string,
+  config = RETRY_CONFIG
+): Promise<T> {
+  let lastError: Error;
+  
+  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = Math.min(
+          config.baseDelayMs * Math.pow(config.backoffMultiplier, attempt - 1),
+          config.maxDelayMs
+        );
+        
+        ctx.info(`Retrying ${operationName}`, {
+          attempt: attempt + 1,
+          maxRetries: config.maxRetries + 1,
+          delayMs: delay,
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+      
+      if (attempt === config.maxRetries) {
+        ctx.error(`${operationName} failed after ${config.maxRetries + 1} attempts`, {
+          error: lastError.message,
+          totalAttempts: attempt + 1,
+        });
+        throw lastError;
+      }
+      
+      ctx.warn(`${operationName} failed, will retry`, {
+        attempt: attempt + 1,
+        error: lastError.message,
+        nextRetryIn: Math.min(
+          config.baseDelayMs * Math.pow(config.backoffMultiplier, attempt),
+          config.maxDelayMs
+        ),
+      });
+    }
+  }
+  
+  throw lastError!;
+}
+
 // Interface for the image data extraction response
 interface ImageDataExtractResponse {
   Vin: string | null;
@@ -62,69 +122,78 @@ export async function processExtensionData(
           ],
         };
 
-        const response = await fetch(
-          `${SUPABASE_CONFIG.url}/functions/v1/function-call`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
-            },
-            body: JSON.stringify(functionCallPayload),
-          }
+        // Use retry mechanism for the fetch call
+        const result = await retryWithBackoff(
+          async () => {
+            const response = await fetch(
+              `${SUPABASE_CONFIG.url}/functions/v1/function-call`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+                },
+                body: JSON.stringify(functionCallPayload),
+              }
+            );
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            const result = await response.json();
+            
+            if (!result.success || !result.payload) {
+              throw new Error(`Function call failed: ${JSON.stringify(result)}`);
+            }
+            
+            return result;
+          },
+          ctx,
+          "image_data_extract function call"
         );
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          ctx.error("Failed to call image_data_extract function", {
-            status: response.status,
-            error: errorText,
-          });
-        } else {
-          const result = await response.json();
-          if (result.success && result.payload) {
-            try {
-              // Handle JSON wrapped in markdown code blocks
-              let jsonString = result.payload;
-              if (
-                jsonString.startsWith("```json\n") &&
-                jsonString.endsWith("\n```")
-              ) {
-                jsonString = jsonString.slice(8, -4); // Remove ```json\n and \n```
-              } else if (
-                jsonString.startsWith("```\n") &&
-                jsonString.endsWith("\n```")
-              ) {
-                jsonString = jsonString.slice(4, -4); // Remove ```\n and \n```
-              }
-
-              extractedVehicleData = JSON.parse(jsonString);
-              ctx.info(
-                "Extracted vehicle data from image",
-                extractedVehicleData
-              );
-              ctx.info("Successfully extracted vehicle data from image", {
-                has_vin: !!extractedVehicleData?.Vin,
-                has_make: !!extractedVehicleData?.Make,
-                has_model: !!extractedVehicleData?.Model,
-                has_year: !!extractedVehicleData?.Year,
-              });
-            } catch (parseError) {
-              ctx.error("Failed to parse extracted vehicle data", {
-                error: (parseError as Error).message,
-                payload: result.payload,
-              });
-            }
-          } else {
-            ctx.error("Image data extraction failed", {
-              result: result,
-            });
+        // Process the successful result
+        try {
+          // Handle JSON wrapped in markdown code blocks
+          let jsonString = result.payload;
+          if (
+            jsonString.startsWith("```json\n") &&
+            jsonString.endsWith("\n```")
+          ) {
+            jsonString = jsonString.slice(8, -4); // Remove ```json\n and \n```
+          } else if (
+            jsonString.startsWith("```\n") &&
+            jsonString.endsWith("\n```")
+          ) {
+            jsonString = jsonString.slice(4, -4); // Remove ```\n and \n```
           }
+
+          extractedVehicleData = JSON.parse(jsonString);
+          ctx.info(
+            "Extracted vehicle data from image",
+            extractedVehicleData
+          );
+          ctx.info("Successfully extracted vehicle data from image", {
+            has_vin: !!extractedVehicleData?.Vin,
+            has_make: !!extractedVehicleData?.Make,
+            has_model: !!extractedVehicleData?.Model,
+            has_year: !!extractedVehicleData?.Year,
+          });
+        } catch (parseError) {
+          ctx.error("Failed to parse extracted vehicle data", {
+            error: (parseError as Error).message,
+            payload: result.payload,
+          });
+          // Continue with null extractedVehicleData - process will continue
         }
       } catch (error) {
-        ctx.error("Error calling image_data_extract function", {
+        ctx.warn("Image data extraction failed after retries, continuing with original vehicle data", {
           error: (error as Error).message,
         });
+        // Don't throw error - continue with null extractedVehicleData
+        // The process will continue using the original vehicleData
       }
     } else {
       ctx.info("No images available for vehicle data extraction");
