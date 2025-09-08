@@ -276,7 +276,8 @@ async function updateInspectionVehicleDetails(
 export async function categorizeImage(
   imageUrl: string,
   inspectionId?: string,
-  inspectionType?: string
+  inspectionType?: string,
+  userId?: string
 ): Promise<ImageCategorizationResult | null> {
   try {
     console.log(`Categorizing image: ${imageUrl}`);
@@ -285,6 +286,8 @@ export async function categorizeImage(
     const functionCallPayload = {
       function_name: "image_details_extraction",
       query: "Provide the results with the image url",
+      inspection_id: inspectionId,
+      user_id: userId,
       files: [
         {
           type: "image",
@@ -519,7 +522,8 @@ export async function categorizeImages(
   inspectionId?: string,
   obd2Codes?: OBD2Code[],
   titleImages?: TitleImage[],
-  inspectionType?: string
+  inspectionType?: string,
+  userId?: string
 ): Promise<void> {
   const totalImages =
     photos.length + (obd2Codes?.length || 0) + (titleImages?.length || 0);
@@ -541,7 +545,8 @@ export async function categorizeImages(
           const result = await categorizeImage(
             photo.path,
             inspectionId,
-            inspectionType
+            inspectionType,
+            userId
           );
           if (result) {
             await updatePhotoWithAnalysis(
@@ -581,7 +586,8 @@ export async function categorizeImages(
             const result = await categorizeImage(
               obd2.screenshot_path!,
               inspectionId,
-              inspectionType
+              inspectionType,
+              userId
             );
             if (result) {
               await updateOBD2WithAnalysis(obd2.id, result.fullAnalysis);
@@ -608,7 +614,8 @@ export async function categorizeImages(
             const result = await categorizeImage(
               titleImage.path,
               inspectionId,
-              inspectionType
+              inspectionType,
+              userId
             );
             if (result) {
               await updateTitleImageWithAnalysis(

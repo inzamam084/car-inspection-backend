@@ -113,6 +113,8 @@ export async function processExtensionData(
         const functionCallPayload = {
           function_name: "image_data_extract",
           query: "Provide the results with the image url",
+          inspection_id: undefined, // Inspection hasn't been created yet
+          user_id: ctx.userId,
           files: [
             {
               type: "image",
