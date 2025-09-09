@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
       ...(files && { files })
     };
 
-    // Get user_id from function params or JWT token
+    // Get user_id from function params or JWT token 
     userId = user_id || null;
     if (!userId) {
       logDebug(requestId, 'Attempting to extract user from JWT token');
