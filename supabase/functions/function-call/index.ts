@@ -116,6 +116,7 @@ Deno.serve(async (req) => {
   const startedAt = new Date().toISOString();
   const requestId = generateRequestId();
   let userId: string | null = null;
+  let inspectionId: string | null = null;
   let functionName: string | null = null;
   let requestData: any = null;
   let errorMessage: string | null = null;
@@ -124,17 +125,19 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const {function_name, user_id, response_mode = 'blocking', files, ...rest} = body;
+    const {function_name, user_id, inspection_id, response_mode = 'blocking', files, ...rest} = body;
     
     logDebug(requestId, 'Request body parsed', { 
       function_name, 
-      user_id, 
+      user_id,
+      inspection_id, 
       response_mode,
       inputs_count: Object.keys(rest).length,
       files_count: files ? files.length : 0
     });
     
     functionName = function_name;
+    inspectionId = inspection_id || null;
     requestData = {
       inputs: rest,
       user: "abc-123",
@@ -142,7 +145,7 @@ Deno.serve(async (req) => {
       ...(files && { files })
     };
 
-    // Get user_id from function params or JWT token
+    // Get user_id from function params or JWT token 
     userId = user_id || null;
     if (!userId) {
       logDebug(requestId, 'Attempting to extract user from JWT token');
@@ -177,6 +180,7 @@ Deno.serve(async (req) => {
       
       await logActivity(supabase, {
         user_id: userId,
+        inspection_id: inspectionId,
         function_name: functionName,
         request_data: requestData,
         error: errorMessage,
@@ -214,6 +218,7 @@ Deno.serve(async (req) => {
       
       await logActivity(supabase, {
         user_id: userId,
+        inspection_id: inspectionId,
         function_name: functionName,
         request_data: requestData,
         error: errorMessage,
@@ -282,15 +287,16 @@ Deno.serve(async (req) => {
       const endedAt = new Date().toISOString();
       const executionTime = (endTime - startTime) / 1000;
       
-      await logActivity(supabase, {
-        user_id: userId,
-        function_name: functionName,
-        request_data: requestData,
-        error: errorMessage,
-        started_at: startedAt,
-        ended_at: endedAt,
-        execution_time: executionTime
-      });
+    await logActivity(supabase, {
+      user_id: userId,
+      inspection_id: inspectionId,
+      function_name: functionName,
+      request_data: requestData,
+      error: errorMessage,
+      started_at: startedAt,
+      ended_at: endedAt,
+      execution_time: executionTime
+    });
       
       return new Response(
         JSON.stringify({ error: 'Dify API request failed', status: response.status, details: errorText }),
@@ -320,7 +326,7 @@ Deno.serve(async (req) => {
       const stream = new ReadableStream({
         async start(controller) {
           try {
-            await handleDifyStreamingResponse(response, requestId, userId, functionName, requestData, startedAt, supabase, controller);
+            await handleDifyStreamingResponse(response, requestId, userId, inspectionId, functionName, requestData, startedAt, supabase, controller);
           } catch (error) {
             logError(requestId, 'Error in streaming handler', error);
             controller.error(error);
@@ -364,6 +370,7 @@ Deno.serve(async (req) => {
       
       await logActivity(supabase, {
         user_id: userId,
+        inspection_id: inspectionId,
         task_id: difyResponse.task_id || null,
         message_id: difyResponse.message_id || difyResponse.id || null,
         event: difyResponse.event || 'message',
@@ -445,6 +452,7 @@ async function handleDifyStreamingResponse(
   response: Response,
   requestId: string,
   userId: string | null,
+  inspectionId: string | null,
   functionName: string | null,
   requestData: any,
   startedAt: string,
@@ -739,6 +747,7 @@ async function logActivity(supabase: any, data: any) {
 
     const logData = {
       user_id: data.user_id || null,
+      inspection_id: data.inspection_id || null,
       task_id: data.task_id || null,
       message_id: data.message_id || null,
       workflow_run_id: data.workflow_run_id || null,

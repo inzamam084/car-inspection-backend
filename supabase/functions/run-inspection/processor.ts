@@ -69,7 +69,8 @@ export async function runAnalysisInBackground(
           inspectionId,
           obd2_codes,
           title_images,
-          inspectionData.type
+          inspectionData.type,
+          ctx.userId || undefined
         );
         ctx.info("Image categorization completed successfully");
       } catch (error) {
@@ -92,6 +93,7 @@ export async function runAnalysisInBackground(
         function_name: "car_inspection_workflow",
         response_mode: "streaming",
         inspection_id: inspectionId,
+        user_id: ctx.userId,
       }),
     })
       .then(async (functionCallResponse) => {

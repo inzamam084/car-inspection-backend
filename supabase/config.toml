@@ -293,6 +293,7 @@ deno_version = 1
 [functions.run-inspection]
 verify_jwt = false
 
+
 [functions.check-subscription-access]
 verify_jwt = false
 
