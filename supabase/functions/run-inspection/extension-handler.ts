@@ -265,7 +265,7 @@ export async function processExtensionData(
       };
     }
 
-    // Start analysis pipeline in background 
+    // Start analysis pipeline in background
     ctx.info("Starting analysis pipeline in background");
 
     runInBackground(async () => {
