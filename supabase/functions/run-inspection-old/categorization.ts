@@ -6,6 +6,65 @@ import type {
   ImageCategorizationResult,
 } from "./schemas.ts";
 
+// Retry configuration for image categorization
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 1000, // Start with 1 second
+  maxDelayMs: 10000, // Cap at 10 seconds
+  backoffMultiplier: 2,
+};
+
+// Helper function for retry with exponential backoff
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  operationName: string,
+  config = RETRY_CONFIG
+): Promise<T> {
+  let lastError: Error;
+  
+  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = Math.min(
+          config.baseDelayMs * Math.pow(config.backoffMultiplier, attempt - 1),
+          config.maxDelayMs
+        );
+        
+        console.log(`Retrying ${operationName}`, {
+          attempt: attempt + 1,
+          maxRetries: config.maxRetries + 1,
+          delayMs: delay,
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+      
+      if (attempt === config.maxRetries) {
+        console.error(`${operationName} failed after ${config.maxRetries + 1} attempts`, {
+          error: lastError.message,
+          totalAttempts: attempt + 1,
+        });
+        throw lastError;
+      }
+      
+      console.warn(`${operationName} failed, will retry`, {
+        attempt: attempt + 1,
+        error: lastError.message,
+        nextRetryIn: Math.min(
+          config.baseDelayMs * Math.pow(config.backoffMultiplier, attempt),
+          config.maxDelayMs
+        ),
+      });
+    }
+  }
+  
+  throw lastError!;
+}
+
 // Initialize database service
 const dbService = createDatabaseService();
 
@@ -20,7 +79,7 @@ export async function categorizeImage(
 
     // Prepare the request payload for function-call edge function
     const functionCallPayload = {
-      function_name: "image_categorization",
+      function_name: "image_details_extraction",
       query: "Provide the results with the image url",
       files: [
         {
@@ -42,30 +101,41 @@ export async function categorizeImage(
       return null;
     }
 
-    // Call the function-call edge function
-    const response = await fetch(`${supabaseUrl}/functions/v1/function-call-old`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${supabaseServiceKey}`,
-      },
-      body: JSON.stringify(functionCallPayload),
-    });
+    // Call the function-call edge function with retry logic
+    let data;
+    try {
+      data = await retryWithBackoff(
+        async () => {
+          const response = await fetch(`${supabaseUrl}/functions/v1/function-call-old`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify(functionCallPayload),
+          });
 
-    if (!response.ok) {
-      console.error(
-        `Function-call request failed: ${response.status} ${response.statusText}`
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+          }
+
+          const data = await response.json();
+          
+          if (!data.success || !data.payload) {
+            throw new Error(`Function call failed: ${JSON.stringify(data)}`);
+          }
+          
+          return data;
+        },
+        `image categorization for ${imageUrl}`
       );
-      const errorText = await response.text();
-      console.error("Error response:", errorText);
-      return null;
-    }
-
-    const data = await response.json();
-    console.log(`Function-call response for ${imageUrl}:`, data);
-
-    if (!data.success || !data.payload) {
-      console.error("Function-call returned unsuccessful response:", data);
+      
+      console.log(`Function-call response for ${imageUrl}:`, data);
+    } catch (error) {
+      console.warn(`Image categorization failed after retries for ${imageUrl}, skipping`, {
+        error: (error as Error).message,
+      });
       return null;
     }
 
@@ -73,6 +143,7 @@ export async function categorizeImage(
     try {
       // Extract JSON from the response that may contain explanatory text
       let jsonString = data.payload;
+      console.log("Raw function-call payload:", jsonString);
       
       // Look for JSON block between ```json and ``` markers
       const jsonMatch = jsonString.match(/```json\s*\n([\s\S]*?)\n\s*```/);
@@ -88,10 +159,15 @@ export async function categorizeImage(
 
       const answerJson = JSON.parse(jsonString.trim());
 
+      // Create a copy of the analysis without vehicle data for fullAnalysis
+      const analysisWithoutVehicle = { ...answerJson };
+      delete analysisWithoutVehicle.vehicle;
+
       const result: ImageCategorizationResult = {
-        category: answerJson.category,
+        category: answerJson.inspectionResult?.category || answerJson.category || "exterior",
         confidence: answerJson.confidence || 1.0,
         reasoning: answerJson.reasoning || "No reasoning provided",
+        fullAnalysis: analysisWithoutVehicle,
       };
 
       console.log(
@@ -119,7 +195,7 @@ export async function categorizeImages(photos: Photo[]): Promise<void> {
     try {
       const result = await categorizeImage(photo.path);
       if (result) {
-        await updatePhotoCategory(photo.id, result.category);
+        await updatePhotoWithAnalysis(photo.id, result.category, result.fullAnalysis);
         console.log(
           `Updated photo ${photo.id} with category: ${result.category}`
         );
@@ -149,25 +225,37 @@ export async function categorizeImages(photos: Photo[]): Promise<void> {
 }
 
 /**
- * Update photo category in the database
+ * Update photo category and LLM analysis in the database
  */
-async function updatePhotoCategory(
+async function updatePhotoWithAnalysis(
   photoId: string,
-  category: string
+  category: string,
+  llmAnalysis?: any
 ): Promise<void> {
   try {
+    const updateData: any = { category };
+
+    // Add llm_analysis if provided
+    if (llmAnalysis) {
+      updateData.llm_analysis = llmAnalysis;
+    }
+
     const { error } = await dbService
       .getClient()
       .from("photos")
-      .update({ category })
+      .update(updateData)
       .eq("id", photoId);
 
     if (error) {
-      console.error(`Failed to update category for photo ${photoId}:`, error);
+      console.error(`Failed to update photo ${photoId}:`, error);
       throw error;
     }
+
+    console.log(
+      `Successfully updated photo ${photoId} with category: ${category} and LLM analysis`
+    );
   } catch (error) {
-    console.error(`Error updating photo category:`, error);
+    console.error(`Error updating photo with analysis:`, error);
     throw error;
   }
 }
