@@ -138,8 +138,15 @@ Deno.serve(async (req) => {
     
     functionName = function_name;
     inspectionId = inspection_id || null;
+    
+    // Include inspection_id in the inputs if it's provided
+    const inputs = { ...rest };
+    if (inspection_id) {
+      inputs.inspection_id = inspection_id;
+    }
+    
     requestData = {
-      inputs: rest,
+      inputs: inputs,
       user: "abc-123",
       response_mode,
       ...(files && { files })
@@ -253,7 +260,7 @@ Deno.serve(async (req) => {
     
     // Prepare the request body for Dify API
     const difyRequestBody: any = {
-      inputs: rest,
+      inputs: inputs,
       user: "abc-123",
       response_mode,
     };
