@@ -34,7 +34,7 @@ END $$;
 CREATE OR REPLACE FUNCTION public.custom_access_token_hook(event jsonb)
 RETURNS jsonb AS $$
 DECLARE
-  claims jsonb;
+  custom_claims jsonb;
   user_id uuid;
   user_exists boolean := false;
   user_role text := 'user';
@@ -44,14 +44,16 @@ BEGIN
   -- Extract user ID from the event
   user_id := (event->>'user_id')::uuid;
   
-  -- If user_id is null, return minimal claims
+  -- If user_id is null, add minimal custom claims
   IF user_id IS NULL THEN
-    event := jsonb_set(event, '{claims}', jsonb_build_object(
+    custom_claims := jsonb_build_object(
       'role', 'user',
       'permissions', '[]'::jsonb,
       'is_active', true,
       'dashboard_type', 'user'
-    ));
+    );
+    -- Add custom claims to existing claims
+    event := jsonb_set(event, '{claims}', COALESCE(event->'claims', '{}'::jsonb) || custom_claims);
     RETURN event;
   END IF;
   
@@ -68,14 +70,16 @@ BEGIN
       user_exists := false;
   END;
   
-  -- If user doesn't exist or is inactive, return minimal claims
+  -- If user doesn't exist or is inactive, add minimal custom claims
   IF NOT user_exists OR (user_profile IS NOT NULL AND user_profile.is_active = false) THEN
-    event := jsonb_set(event, '{claims}', jsonb_build_object(
+    custom_claims := jsonb_build_object(
       'role', 'user',
       'permissions', '[]'::jsonb,
       'is_active', false,
       'dashboard_type', 'user'
-    ));
+    );
+    -- Add custom claims to existing claims
+    event := jsonb_set(event, '{claims}', COALESCE(event->'claims', '{}'::jsonb) || custom_claims);
     RETURN event;
   END IF;
   
@@ -120,8 +124,8 @@ BEGIN
       user_permissions := ARRAY[]::text[];
   END;
   
-  -- Build and set claims
-  claims := jsonb_build_object(
+  -- Build custom claims
+  custom_claims := jsonb_build_object(
     'role', user_role,
     'permissions', to_jsonb(user_permissions),
     'is_active', COALESCE(user_profile.is_active, true),
@@ -134,19 +138,23 @@ BEGIN
     'claims_generated_at', extract(epoch from now())
   );
   
-  event := jsonb_set(event, '{claims}', claims);
+  -- Add custom claims to existing claims (merge with existing claims)
+  event := jsonb_set(event, '{claims}', COALESCE(event->'claims', '{}'::jsonb) || custom_claims);
   
   RETURN event;
 EXCEPTION
   WHEN OTHERS THEN
-    -- On any error, return minimal safe claims
-    event := jsonb_set(event, '{claims}', jsonb_build_object(
+    -- On any error, add minimal safe custom claims
+    custom_claims := jsonb_build_object(
       'role', 'user',
       'permissions', '[]'::jsonb,
       'is_active', true,
       'dashboard_type', 'user',
       'error', 'Claims generation failed'
-    ));
+    );
+    
+    -- Add custom claims to existing claims
+    event := jsonb_set(event, '{claims}', COALESCE(event->'claims', '{}'::jsonb) || custom_claims);
     
     -- Try to log the error, but don't fail if logging fails
     BEGIN
