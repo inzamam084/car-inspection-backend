@@ -49,7 +49,3 @@ AND is_active = true;
 
 -- Add comment for documentation
 COMMENT ON FUNCTION public.handle_new_user() IS 'Updated to assign admin role by default to new users';
-
--- Log the migration
-INSERT INTO public.function_logs (function_name, error_message, record_id)
-VALUES ('migration_20250910083700', 'Default role changed from user to admin', null);
