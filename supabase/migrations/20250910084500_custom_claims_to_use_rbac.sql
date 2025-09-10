@@ -319,35 +319,35 @@ GRANT EXECUTE ON FUNCTION public.assign_role_to_user(uuid, text, uuid) TO servic
 GRANT SELECT ON public.user_roles_view TO authenticated;
 GRANT SELECT ON public.user_roles_view TO service_role;
 
--- Update the handle_new_user function to use RBAC system properly
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-DECLARE
-  user_role_uuid uuid;
-BEGIN
-    -- Insert profile without role column (we'll use RBAC system)
-    INSERT INTO public.profiles (id, email)
-    VALUES (NEW.id, NEW.email);
+-- -- Update the handle_new_user function to use RBAC system properly
+-- CREATE OR REPLACE FUNCTION public.handle_new_user()
+-- RETURNS TRIGGER AS $$
+-- DECLARE
+--   user_role_uuid uuid;
+-- BEGIN
+--     -- Insert profile without role column (we'll use RBAC system)
+--     INSERT INTO public.profiles (id, email)
+--     VALUES (NEW.id, NEW.email);
     
-    -- Get admin role UUID and assign it (default to admin for new users)
-    SELECT id INTO user_role_uuid FROM public.roles WHERE name = 'admin';
-    INSERT INTO public.user_roles (user_id, role_id)
-    VALUES (NEW.id, user_role_uuid);
+--     -- Get admin role UUID and assign it (default to admin for new users)
+--     SELECT id INTO user_role_uuid FROM public.roles WHERE name = 'admin';
+--     INSERT INTO public.user_roles (user_id, role_id)
+--     VALUES (NEW.id, user_role_uuid);
     
-    RETURN NEW;
-EXCEPTION
-    WHEN OTHERS THEN
-        -- Log the error and continue
-        INSERT INTO public.function_logs (function_name, error_message, record_id)
-        VALUES ('handle_new_user', SQLERRM, NEW.id);
-        RETURN NEW;
-END;
-$$ LANGUAGE 'plpgsql' SECURITY DEFINER;
+--     RETURN NEW;
+-- EXCEPTION
+--     WHEN OTHERS THEN
+--         -- Log the error and continue
+--         INSERT INTO public.function_logs (function_name, error_message, record_id)
+--         VALUES ('handle_new_user', SQLERRM, NEW.id);
+--         RETURN NEW;
+-- END;
+-- $$ LANGUAGE 'plpgsql' SECURITY DEFINER;
 
--- Create trigger for new user registration
-CREATE OR REPLACE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+-- -- Create trigger for new user registration
+-- CREATE OR REPLACE TRIGGER on_auth_user_created
+--   AFTER INSERT ON auth.users
+--   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- Update RLS policies to use RBAC system instead of profiles.role
 -- Drop existing policies that use profiles.role
@@ -512,4 +512,4 @@ COMMENT ON FUNCTION public.get_user_primary_role(uuid) IS 'Gets user primary rol
 COMMENT ON FUNCTION public.invalidate_user_sessions(uuid) IS 'Invalidates all sessions for a user to force token refresh';
 COMMENT ON FUNCTION public.assign_role_to_user(uuid, text, uuid) IS 'Helper function to assign a role to a user through RBAC system';
 COMMENT ON VIEW public.user_roles_view IS 'View showing user roles from RBAC system';
-COMMENT ON FUNCTION public.handle_new_user() IS 'Updated to use RBAC system and assign admin role by default';
+-- COMMENT ON FUNCTION public.handle_new_user() IS 'Updated to use RBAC system and assign admin role by default';
