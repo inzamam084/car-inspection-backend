@@ -1,11 +1,11 @@
--- Create authentication triggers and functions
+-- Create authentication triggers and functions (Updated for admin default role)
 -- This migration creates triggers for handling user authentication and login tracking
 
 -- Create function to update user last login
 CREATE OR REPLACE FUNCTION public.update_user_last_login()
 RETURNS TRIGGER AS $$
 BEGIN
-  UPDATE public.profiles 
+  UPDATE public.profiles
   SET last_login_at = now()
   WHERE id = NEW.id;
   RETURN NEW;
@@ -19,23 +19,23 @@ CREATE OR REPLACE TRIGGER on_auth_user_login
   WHEN (OLD.last_sign_in_at IS DISTINCT FROM NEW.last_sign_in_at)
   EXECUTE FUNCTION public.update_user_last_login();
 
--- Update the handle_new_user function to use RBAC system only
+-- Update the handle_new_user function to assign 'admin' role by default
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
-  user_role_uuid uuid;
+  default_role_uuid uuid;
 BEGIN
     -- Insert profile without role column (using RBAC system only)
     INSERT INTO public.profiles (id, email)
     VALUES (NEW.id, NEW.email);
     
-    -- Get admin role UUID and assign it through RBAC system
-    SELECT id INTO user_role_uuid FROM public.roles WHERE name = 'admin';
+    -- Get admin role UUID (assign 'admin' role by default)
+    SELECT id INTO default_role_uuid FROM public.roles WHERE name = 'admin';
     
     -- Only insert if role exists
-    IF user_role_uuid IS NOT NULL THEN
+    IF default_role_uuid IS NOT NULL THEN
         INSERT INTO public.user_roles (user_id, role_id)
-        VALUES (NEW.id, user_role_uuid);
+        VALUES (NEW.id, default_role_uuid);
     END IF;
     
     RETURN NEW;
@@ -48,17 +48,23 @@ EXCEPTION
             ON CONFLICT (id) DO NOTHING;
             
             -- Try to assign default role even if profile creation had issues
-            SELECT id INTO user_role_uuid FROM public.roles WHERE name = 'admin';
-            IF user_role_uuid IS NOT NULL THEN
+            SELECT id INTO default_role_uuid FROM public.roles WHERE name = 'admin';
+            IF default_role_uuid IS NOT NULL THEN
                 INSERT INTO public.user_roles (user_id, role_id)
-                VALUES (NEW.id, user_role_uuid)
+                VALUES (NEW.id, default_role_uuid)
                 ON CONFLICT (user_id, role_id) DO NOTHING;
             END IF;
         EXCEPTION
             WHEN OTHERS THEN
-                -- If even basic profile creation fails, log it
-                INSERT INTO public.function_logs (function_name, error_message, record_id)
-                VALUES ('handle_new_user', CONCAT('Profile creation failed: ', SQLERRM), NEW.id);
+                -- If even basic profile creation fails, log it (only if function_logs table exists)
+                BEGIN
+                    INSERT INTO public.function_logs (function_name, error_message, record_id)
+                    VALUES ('handle_new_user', CONCAT('Profile creation failed: ', SQLERRM), NEW.id);
+                EXCEPTION
+                    WHEN OTHERS THEN
+                        -- If logging fails, just continue silently
+                        NULL;
+                END;
         END;
         RETURN NEW;
 END;
