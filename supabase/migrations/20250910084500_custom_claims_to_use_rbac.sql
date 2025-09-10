@@ -1,6 +1,6 @@
--- Fix Custom Claims to Use Proper RBAC System
+-- Fix Custom Claims to Use Proper RBAC System (SIMPLIFIED)
 -- This migration fixes the custom claims functions to use the user_roles table
--- instead of the profiles.role column for proper role-based access control
+-- Simple approach: just store role info in JWT claims, nothing more
 
 -- Create function to get user's primary role from user_roles table
 CREATE OR REPLACE FUNCTION public.get_user_primary_role(user_uuid uuid)
@@ -39,7 +39,7 @@ DECLARE
   user_role text;
   claims jsonb;
 BEGIN
-  -- Get user profile information (excluding role)
+  -- Get user profile information
   SELECT is_active, first_name, last_name
   INTO user_profile
   FROM public.profiles
@@ -54,7 +54,7 @@ BEGIN
     );
   END IF;
 
-  -- Get user's primary role from RBAC system
+  -- Get user's primary role from RBAC system (directly from roles table)
   user_role := public.get_user_primary_role(user_uuid);
 
   -- Get user permissions from RBAC system
@@ -62,9 +62,9 @@ BEGIN
   INTO user_permissions
   FROM public.get_user_permissions(user_uuid);
 
-  -- Build custom claims object using RBAC role
+  -- Build custom claims object using role from roles table
   claims := jsonb_build_object(
-    'role', user_role,
+    'role', user_role,  -- This comes directly from your roles table
     'permissions', COALESCE(to_jsonb(user_permissions), '[]'::jsonb),
     'is_active', COALESCE(user_profile.is_active, true),
     'full_name', CONCAT(COALESCE(user_profile.first_name, ''), ' ', COALESCE(user_profile.last_name, '')),
@@ -85,7 +85,7 @@ RETURNS boolean AS $$
 DECLARE
   user_role text;
 BEGIN
-  -- Get user's primary role from RBAC system
+  -- Get user's primary role directly from roles table
   user_role := public.get_user_primary_role(user_uuid);
   
   -- Handle role hierarchy
@@ -108,7 +108,7 @@ RETURNS text AS $$
 DECLARE
   user_role text;
 BEGIN
-  -- Get user's primary role from RBAC system
+  -- Get user's primary role directly from roles table
   user_role := public.get_user_primary_role(user_uuid);
   
   CASE user_role
@@ -126,13 +126,11 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION public.invalidate_user_sessions(user_uuid uuid)
 RETURNS void AS $$
 BEGIN
-  -- Update the user's refresh tokens to force re-authentication
   UPDATE auth.refresh_tokens 
   SET revoked = true, 
       updated_at = now()
   WHERE user_id = user_uuid;
   
-  -- Log the session invalidation
   INSERT INTO public.function_logs (function_name, error_message, record_id)
   VALUES ('invalidate_user_sessions', 'Sessions invalidated due to role change', user_uuid);
 END;
@@ -144,36 +142,24 @@ RETURNS TRIGGER AS $$
 DECLARE
   role_name text;
 BEGIN
-  -- Get role name for logging
   SELECT name INTO role_name FROM public.roles WHERE id = COALESCE(NEW.role_id, OLD.role_id);
   
-  -- Log the role change
   IF TG_OP = 'INSERT' THEN
     INSERT INTO public.function_logs (function_name, error_message, record_id)
     VALUES ('user_role_assigned', CONCAT('Role "', role_name, '" assigned to user'), NEW.user_id);
-    
-    -- Invalidate sessions for the user
     PERFORM public.invalidate_user_sessions(NEW.user_id);
-    
     RETURN NEW;
   ELSIF TG_OP = 'UPDATE' THEN
-    -- Check if role changed or status changed
     IF OLD.role_id IS DISTINCT FROM NEW.role_id OR OLD.is_active IS DISTINCT FROM NEW.is_active THEN
       INSERT INTO public.function_logs (function_name, error_message, record_id)
       VALUES ('user_role_updated', CONCAT('Role "', role_name, '" updated for user'), NEW.user_id);
-      
-      -- Invalidate sessions for the user
       PERFORM public.invalidate_user_sessions(NEW.user_id);
     END IF;
-    
     RETURN NEW;
   ELSIF TG_OP = 'DELETE' THEN
     INSERT INTO public.function_logs (function_name, error_message, record_id)
     VALUES ('user_role_removed', CONCAT('Role "', role_name, '" removed from user'), OLD.user_id);
-    
-    -- Invalidate sessions for the user
     PERFORM public.invalidate_user_sessions(OLD.user_id);
-    
     RETURN OLD;
   END IF;
   
@@ -190,86 +176,66 @@ CREATE OR REPLACE TRIGGER refresh_claims_on_user_role_change_trigger
   FOR EACH ROW
   EXECUTE FUNCTION public.refresh_claims_on_user_role_change();
 
--- Update the custom access token hook with better error handling
+-- SIMPLIFIED: Custom access token hook that just stores role info in JWT
 CREATE OR REPLACE FUNCTION public.custom_access_token_hook(event jsonb)
 RETURNS jsonb AS $$
 DECLARE
   claims jsonb;
   user_id uuid;
-  user_exists boolean;
 BEGIN
   -- Extract user ID from the event
   user_id := (event->>'user_id')::uuid;
   
-  -- Check if user exists and is active
-  SELECT EXISTS(
-    SELECT 1 FROM public.profiles 
-    WHERE id = user_id AND is_active = true
-  ) INTO user_exists;
-  
-  -- If user doesn't exist or is inactive, return minimal claims
-  IF NOT user_exists THEN
+  -- If no user ID, return minimal claims
+  IF user_id IS NULL THEN
     event := jsonb_set(event, '{claims}', jsonb_build_object(
       'role', 'user',
       'permissions', '[]'::jsonb,
-      'is_active', false,
-      'error', 'User not found or inactive'
+      'is_active', true
     ));
     RETURN event;
   END IF;
   
-  -- Get custom claims for the user (now using RBAC system)
+  -- Get custom claims (this includes role from your roles table)
   claims := public.get_custom_claims(user_id);
   
-  -- Add timestamp to track when claims were generated
+  -- Add timestamp
   claims := jsonb_set(claims, '{claims_generated_at}', to_jsonb(extract(epoch from now())));
   
-  -- Add custom claims to the JWT token
+  -- Store in JWT claims (NOT for PostgreSQL session)
   event := jsonb_set(event, '{claims}', claims);
   
   RETURN event;
 EXCEPTION
   WHEN OTHERS THEN
-    -- Log the error and return minimal claims
+    -- On error, return safe defaults
     INSERT INTO public.function_logs (function_name, error_message, record_id)
     VALUES ('custom_access_token_hook', CONCAT('Error: ', SQLERRM), user_id);
     
     event := jsonb_set(event, '{claims}', jsonb_build_object(
       'role', 'user',
       'permissions', '[]'::jsonb,
-      'is_active', false,
-      'error', 'Claims generation failed'
+      'is_active', false
     ));
     
     RETURN event;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Create function to manually assign role to user (helper function)
+-- Create function to manually assign role to user
 CREATE OR REPLACE FUNCTION public.assign_role_to_user(user_uuid uuid, role_name text, assigned_by_uuid uuid DEFAULT NULL)
 RETURNS boolean AS $$
 DECLARE
   role_uuid uuid;
-  existing_role_uuid uuid;
 BEGIN
-  -- Get the role UUID
+  -- Get the role UUID directly from roles table
   SELECT id INTO role_uuid FROM public.roles WHERE name = role_name;
   
   IF role_uuid IS NULL THEN
     RAISE EXCEPTION 'Role % does not exist', role_name;
   END IF;
   
-  -- Check if user already has this role
-  SELECT role_id INTO existing_role_uuid 
-  FROM public.user_roles 
-  WHERE user_id = user_uuid AND role_id = role_uuid AND is_active = true;
-  
-  IF existing_role_uuid IS NOT NULL THEN
-    -- User already has this role
-    RETURN false;
-  END IF;
-  
-  -- Deactivate all existing roles for the user (assuming single role per user)
+  -- Deactivate existing roles
   UPDATE public.user_roles 
   SET is_active = false 
   WHERE user_id = user_uuid;
@@ -287,7 +253,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Create view to easily see user roles from RBAC system
+-- Create view to see user roles
 CREATE OR REPLACE VIEW public.user_roles_view AS
 SELECT 
   p.id as user_id,
@@ -309,48 +275,14 @@ WHERE p.is_active = true
 ORDER BY p.email, ur.assigned_at DESC;
 
 -- Grant permissions
-GRANT EXECUTE ON FUNCTION public.get_user_primary_role(uuid) TO anon;
-GRANT EXECUTE ON FUNCTION public.get_user_primary_role(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_user_primary_role(uuid) TO service_role;
-
+GRANT EXECUTE ON FUNCTION public.get_user_primary_role(uuid) TO anon, authenticated, service_role, supabase_auth_admin;
 GRANT EXECUTE ON FUNCTION public.invalidate_user_sessions(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.assign_role_to_user(uuid, text, uuid) TO service_role;
+GRANT SELECT ON public.user_roles_view TO authenticated, service_role;
+GRANT SELECT ON public.user_roles TO supabase_auth_admin;
+GRANT SELECT ON public.roles TO supabase_auth_admin;
 
-GRANT SELECT ON public.user_roles_view TO authenticated;
-GRANT SELECT ON public.user_roles_view TO service_role;
-
--- -- Update the handle_new_user function to use RBAC system properly
--- CREATE OR REPLACE FUNCTION public.handle_new_user()
--- RETURNS TRIGGER AS $$
--- DECLARE
---   user_role_uuid uuid;
--- BEGIN
---     -- Insert profile without role column (we'll use RBAC system)
---     INSERT INTO public.profiles (id, email)
---     VALUES (NEW.id, NEW.email);
-    
---     -- Get admin role UUID and assign it (default to admin for new users)
---     SELECT id INTO user_role_uuid FROM public.roles WHERE name = 'admin';
---     INSERT INTO public.user_roles (user_id, role_id)
---     VALUES (NEW.id, user_role_uuid);
-    
---     RETURN NEW;
--- EXCEPTION
---     WHEN OTHERS THEN
---         -- Log the error and continue
---         INSERT INTO public.function_logs (function_name, error_message, record_id)
---         VALUES ('handle_new_user', SQLERRM, NEW.id);
---         RETURN NEW;
--- END;
--- $$ LANGUAGE 'plpgsql' SECURITY DEFINER;
-
--- -- Create trigger for new user registration
--- CREATE OR REPLACE TRIGGER on_auth_user_created
---   AFTER INSERT ON auth.users
---   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-
--- Update RLS policies to use RBAC system instead of profiles.role
--- Drop existing policies that use profiles.role
+-- Drop existing problematic policies
 DROP POLICY IF EXISTS "Super admins can manage roles" ON public.roles;
 DROP POLICY IF EXISTS "Admins and users can view roles" ON public.roles;
 DROP POLICY IF EXISTS "Super admins can manage permissions" ON public.permissions;
@@ -361,155 +293,6 @@ DROP POLICY IF EXISTS "Super admins can manage user roles" ON public.user_roles;
 DROP POLICY IF EXISTS "Admins can manage non-admin user roles" ON public.user_roles;
 DROP POLICY IF EXISTS "Users can view their own roles" ON public.user_roles;
 
--- -- Create new RLS policies using RBAC system
--- CREATE POLICY "Super admins can manage roles" 
--- ON public.roles 
--- FOR ALL 
--- USING (
---   EXISTS (
---     SELECT 1 FROM public.get_user_primary_role(auth.uid()) AS role
---     WHERE role = 'super_admin'
---   )
--- );
-
--- CREATE POLICY "Admins and users can view roles" 
--- ON public.roles 
--- FOR SELECT 
--- USING (
---   EXISTS (
---     SELECT 1 FROM public.get_user_primary_role(auth.uid()) AS role
---     WHERE role IN ('admin', 'super_admin', 'user')
---   )
--- );
-
--- CREATE POLICY "Super admins can manage permissions" 
--- ON public.permissions 
--- FOR ALL 
--- USING (
---   EXISTS (
---     SELECT 1 FROM public.get_user_primary_role(auth.uid()) AS role
---     WHERE role = 'super_admin'
---   )
--- );
-
--- CREATE POLICY "Admins can view permissions" 
--- ON public.permissions 
--- FOR SELECT 
--- USING (
---   EXISTS (
---     SELECT 1 FROM public.get_user_primary_role(auth.uid()) AS role
---     WHERE role IN ('admin', 'super_admin')
---   )
--- );
-
--- CREATE POLICY "Super admins can manage role permissions" 
--- ON public.role_permissions 
--- FOR ALL 
--- USING (
---   EXISTS (
---     SELECT 1 FROM public.get_user_primary_role(auth.uid()) AS role
---     WHERE role = 'super_admin'
---   )
--- );
-
--- CREATE POLICY "Admins can view role permissions" 
--- ON public.role_permissions 
--- FOR SELECT 
--- USING (
---   EXISTS (
---     SELECT 1 FROM public.get_user_primary_role(auth.uid()) AS role
---     WHERE role IN ('admin', 'super_admin')
---   )
--- );
-
--- CREATE POLICY "Super admins can manage user roles" 
--- ON public.user_roles 
--- FOR ALL 
--- USING (
---   EXISTS (
---     SELECT 1 FROM public.get_user_primary_role(auth.uid()) AS role
---     WHERE role = 'super_admin'
---   )
--- );
-
--- CREATE POLICY "Admins can manage non-super-admin user roles" 
--- ON public.user_roles 
--- FOR ALL 
--- USING (
---   EXISTS (
---     SELECT 1 FROM public.get_user_primary_role(auth.uid()) AS user_role
---     WHERE user_role = 'admin'
---   )
---   AND NOT EXISTS (
---     SELECT 1 FROM public.roles r
---     WHERE r.id = user_roles.role_id AND r.name = 'super_admin'
---   )
--- );
-
--- CREATE POLICY "Users can view their own roles" 
--- ON public.user_roles 
--- FOR SELECT 
--- USING (user_id = auth.uid());
-
--- -- Update profiles table RLS policies to use RBAC system
--- DROP POLICY IF EXISTS "Super admins can manage all profiles" ON public.profiles;
--- DROP POLICY IF EXISTS "Admins can view and update non-admin profiles" ON public.profiles;
--- DROP POLICY IF EXISTS "Admins can update non-super-admin profiles" ON public.profiles;
--- DROP POLICY IF EXISTS "Users can view and update their own profile" ON public.profiles;
--- DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
--- DROP POLICY IF EXISTS "Only admins can change user roles" ON public.profiles;
-
--- CREATE POLICY "Super admins can manage all profiles" 
--- ON public.profiles 
--- FOR ALL 
--- USING (
---   EXISTS (
---     SELECT 1 FROM public.get_user_primary_role(auth.uid()) AS role
---     WHERE role = 'super_admin'
---   )
--- );
-
--- CREATE POLICY "Admins can view all profiles" 
--- ON public.profiles 
--- FOR SELECT 
--- USING (
---   id = auth.uid() OR
---   EXISTS (
---     SELECT 1 FROM public.get_user_primary_role(auth.uid()) AS role
---     WHERE role IN ('admin', 'super_admin')
---   )
--- );
-
--- CREATE POLICY "Admins can update profiles" 
--- ON public.profiles 
--- FOR UPDATE 
--- USING (
---   id = auth.uid() OR
---   EXISTS (
---     SELECT 1 FROM public.get_user_primary_role(auth.uid()) AS role
---     WHERE role IN ('admin', 'super_admin')
---   )
--- );
-
--- CREATE POLICY "Users can view and update their own profile" 
--- ON public.profiles 
--- FOR SELECT 
--- USING (id = auth.uid());
-
--- CREATE POLICY "Users can update their own profile" 
--- ON public.profiles 
--- FOR UPDATE 
--- USING (id = auth.uid())
--- WITH CHECK (id = auth.uid());
-
--- Grant additional permissions needed for RBAC functions
-GRANT EXECUTE ON FUNCTION public.get_user_primary_role(uuid) TO supabase_auth_admin;
-GRANT SELECT ON public.user_roles TO supabase_auth_admin;
-GRANT SELECT ON public.roles TO supabase_auth_admin;
-
--- Add comments
-COMMENT ON FUNCTION public.get_user_primary_role(uuid) IS 'Gets user primary role from RBAC system (user_roles table)';
-COMMENT ON FUNCTION public.invalidate_user_sessions(uuid) IS 'Invalidates all sessions for a user to force token refresh';
-COMMENT ON FUNCTION public.assign_role_to_user(uuid, text, uuid) IS 'Helper function to assign a role to a user through RBAC system';
-COMMENT ON VIEW public.user_roles_view IS 'View showing user roles from RBAC system';
--- COMMENT ON FUNCTION public.handle_new_user() IS 'Updated to use RBAC system and assign admin role by default';
+-- Comments
+COMMENT ON FUNCTION public.get_user_primary_role(uuid) IS 'Gets user role directly from roles table via user_roles';
+COMMENT ON FUNCTION public.custom_access_token_hook(jsonb) IS 'Simple hook that stores role info in JWT claims only';
