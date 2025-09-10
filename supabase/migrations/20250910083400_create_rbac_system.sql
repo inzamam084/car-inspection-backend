@@ -354,30 +354,30 @@ CREATE OR REPLACE TRIGGER sync_user_role_trigger
   WHEN (OLD.role IS DISTINCT FROM NEW.role)
   EXECUTE FUNCTION public.sync_user_role();
 
--- -- Update the handle_new_user function to set default role
--- CREATE OR REPLACE FUNCTION public.handle_new_user()
--- RETURNS TRIGGER AS $$
--- DECLARE
---   user_role_uuid uuid;
--- BEGIN
---     -- Insert profile with default user role
---     INSERT INTO public.profiles (id, email, role)
---     VALUES (NEW.id, NEW.email, 'user');
+-- Update the handle_new_user function to set default role
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+DECLARE
+  user_role_uuid uuid;
+BEGIN
+    -- Insert profile with default user role
+    INSERT INTO public.profiles (id, email, role)
+    VALUES (NEW.id, NEW.email);
     
---     -- Get user role UUID and assign it
---     SELECT id INTO user_role_uuid FROM public.roles WHERE name = 'user';
---     INSERT INTO public.user_roles (user_id, role_id)
---     VALUES (NEW.id, user_role_uuid);
+    -- Get user role UUID and assign it
+    SELECT id INTO user_role_uuid FROM public.roles WHERE name = 'admin';
+    INSERT INTO public.user_roles (user_id, role_id)
+    VALUES (NEW.id, user_role_uuid);
     
---     RETURN NEW;
--- EXCEPTION
---     WHEN OTHERS THEN
---         -- Log the error and continue
---         INSERT INTO public.function_logs (function_name, error_message, record_id)
---         VALUES ('handle_new_user', SQLERRM, NEW.id);
---         RETURN NEW;
--- END;
--- $$ LANGUAGE 'plpgsql' SECURITY DEFINER;
+    RETURN NEW;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Log the error and continue
+        INSERT INTO public.function_logs (function_name, error_message, record_id)
+        VALUES ('handle_new_user', SQLERRM, NEW.id);
+        RETURN NEW;
+END;
+$$ LANGUAGE 'plpgsql' SECURITY DEFINER;
 
 -- Add comments for documentation
 COMMENT ON TABLE public.roles IS 'System roles for RBAC';
