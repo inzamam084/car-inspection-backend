@@ -67,94 +67,18 @@ CREATE INDEX idx_user_roles_role_id ON public.user_roles(role_id);
 CREATE INDEX idx_user_roles_active ON public.user_roles(is_active);
 CREATE INDEX idx_profiles_is_active ON public.profiles(is_active);
 
--- Insert default roles
-INSERT INTO public.roles (name, description, is_system_role) VALUES
-('super_admin', 'Super Administrator with full system access', true),
-('admin', 'Administrator with limited system access', true),
-('user', 'Regular user with basic access', true);
+-- -- Enable Row Level Security on new tables
+-- ALTER TABLE public.roles ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.permissions ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.role_permissions ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 
--- Insert default permissions
-INSERT INTO public.permissions (name, description, resource, action) VALUES
--- User management permissions
-('manage_users', 'Full user management access', 'users', 'manage'),
-('view_users', 'View user information', 'users', 'read'),
-('create_users', 'Create new users', 'users', 'create'),
-('update_users', 'Update user information', 'users', 'update'),
-('delete_users', 'Delete users', 'users', 'delete'),
-
--- Inspection permissions
-('manage_inspections', 'Full inspection management', 'inspections', 'manage'),
-('view_all_inspections', 'View all inspections', 'inspections', 'read_all'),
-('view_own_inspections', 'View own inspections', 'inspections', 'read_own'),
-('create_inspections', 'Create inspections', 'inspections', 'create'),
-('update_inspections', 'Update inspections', 'inspections', 'update'),
-('delete_inspections', 'Delete inspections', 'inspections', 'delete'),
-
--- Report permissions
-('manage_reports', 'Full report management', 'reports', 'manage'),
-('view_all_reports', 'View all reports', 'reports', 'read_all'),
-('view_own_reports', 'View own reports', 'reports', 'read_own'),
-('generate_reports', 'Generate reports', 'reports', 'create'),
-
--- System permissions
-('manage_system', 'Full system management', 'system', 'manage'),
-('view_system_logs', 'View system logs', 'system', 'read_logs'),
-('manage_roles', 'Manage roles and permissions', 'roles', 'manage'),
-('view_analytics', 'View system analytics', 'analytics', 'read'),
-
--- Support permissions
-('manage_support', 'Manage support tickets', 'support', 'manage'),
-('view_all_support', 'View all support tickets', 'support', 'read_all'),
-('view_own_support', 'View own support tickets', 'support', 'read_own'),
-
--- Subscription permissions
-('manage_subscriptions', 'Manage user subscriptions', 'subscriptions', 'manage'),
-('view_subscriptions', 'View subscription information', 'subscriptions', 'read');
-
--- Assign permissions to roles
--- Super Admin gets all permissions
-INSERT INTO public.role_permissions (role_id, permission_id)
-SELECT r.id, p.id 
-FROM public.roles r, public.permissions p 
-WHERE r.name = 'super_admin';
-
--- Admin gets limited permissions (no user deletion, no system management)
-INSERT INTO public.role_permissions (role_id, permission_id)
-SELECT r.id, p.id 
-FROM public.roles r, public.permissions p 
-WHERE r.name = 'admin' 
-AND p.name IN (
-  'view_users', 'create_users', 'update_users',
-  'manage_inspections', 'view_all_inspections', 'create_inspections', 'update_inspections',
-  'manage_reports', 'view_all_reports', 'generate_reports',
-  'view_system_logs', 'view_analytics',
-  'manage_support', 'view_all_support',
-  'view_subscriptions'
-);
-
--- Regular users get basic permissions
-INSERT INTO public.role_permissions (role_id, permission_id)
-SELECT r.id, p.id 
-FROM public.roles r, public.permissions p 
-WHERE r.name = 'user' 
-AND p.name IN (
-  'view_own_inspections', 'create_inspections', 'update_inspections',
-  'view_own_reports', 'generate_reports',
-  'view_own_support'
-);
-
--- Enable Row Level Security on new tables
-ALTER TABLE public.roles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.permissions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.role_permissions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
-
--- RLS policies will be created in a separate migration to use proper RBAC functions
--- For now, disable RLS to allow the system to work
-ALTER TABLE public.roles DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.permissions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.role_permissions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_roles DISABLE ROW LEVEL SECURITY;
+-- -- RLS policies will be created in a separate migration to use proper RBAC functions
+-- -- For now, disable RLS to allow the system to work
+-- ALTER TABLE public.roles DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.permissions DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.role_permissions DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.user_roles DISABLE ROW LEVEL SECURITY;
 
 -- Grant permissions to different roles
 GRANT ALL ON TABLE public.roles TO anon;
