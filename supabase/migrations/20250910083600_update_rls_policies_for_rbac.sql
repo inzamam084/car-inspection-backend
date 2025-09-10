@@ -318,16 +318,26 @@ CREATE POLICY "Users can update their own profile"
 ON public.profiles 
 FOR UPDATE 
 USING (id = auth.uid())
+WITH CHECK (id = auth.uid());
+
+-- Separate policy for role changes - only admins can change roles
+CREATE POLICY "Only admins can change user roles" 
+ON public.profiles 
+FOR UPDATE 
+USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid() 
+    AND p.role IN ('admin', 'super_admin') 
+    AND p.is_active = true
+  )
+)
 WITH CHECK (
-  id = auth.uid() AND
-  -- Users cannot change their own role
-  (OLD.role = NEW.role OR 
-   EXISTS (
-     SELECT 1 FROM public.profiles p
-     WHERE p.id = auth.uid() 
-     AND p.role IN ('admin', 'super_admin') 
-     AND p.is_active = true
-   )
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid() 
+    AND p.role IN ('admin', 'super_admin') 
+    AND p.is_active = true
   )
 );
 
