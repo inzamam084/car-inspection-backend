@@ -165,4 +165,5 @@ export type InspectionStatus =
   | "processing"
   | "analyzing"
   | "completed"
-  | "failed";
+  | "failed"
+  | "done";

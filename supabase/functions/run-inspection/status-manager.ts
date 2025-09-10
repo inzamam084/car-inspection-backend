@@ -9,7 +9,8 @@ export type InspectionStatus =
   | "processing"
   | "analyzing"
   | "completed"
-  | "failed";
+  | "failed"
+  | "done";
 
 export class StatusManager {
   /**
