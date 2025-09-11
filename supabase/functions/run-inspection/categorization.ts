@@ -89,6 +89,57 @@ function isMeaningfulValue(value: any): boolean {
          value !== "unknown";
 }
 
+/**
+ * Helper function to check if a VIN is partially redacted (contains asterisks)
+ */
+function isPartialVin(vin: string): boolean {
+  return typeof vin === 'string' && vin.includes('*');
+}
+
+/**
+ * Helper function to compare a partial VIN (with asterisks) with a complete VIN
+ * Returns true if the non-asterisk portions match
+ */
+function vinMatches(partialVin: string, completeVin: string): boolean {
+  if (!partialVin || !completeVin) return false;
+  if (typeof partialVin !== 'string' || typeof completeVin !== 'string') return false;
+  
+  // Ensure both VINs are the same length (standard VIN is 17 characters)
+  if (partialVin.length !== completeVin.length) return false;
+  
+  // Compare character by character, ignoring asterisks in partial VIN
+  for (let i = 0; i < partialVin.length; i++) {
+    if (partialVin[i] === '*') {
+      continue; // Skip asterisks in partial VIN
+    }
+    if (partialVin[i].toUpperCase() !== completeVin[i].toUpperCase()) {
+      return false; // Non-asterisk characters must match
+    }
+  }
+  
+  return true;
+}
+
+/**
+ * Helper function to check if a complete VIN should replace a partial VIN
+ * Returns true if:
+ * 1. Existing VIN is partial (contains asterisks) AND
+ * 2. New VIN is complete (no asterisks) AND  
+ * 3. The non-asterisk portions match
+ */
+function shouldReplacePartialVin(existingVin: string, newVin: string): boolean {
+  if (!existingVin || !newVin) return false;
+  
+  // Only replace if existing VIN is partial and new VIN is complete
+  const existingIsPartial = isPartialVin(existingVin);
+  const newIsComplete = !isPartialVin(newVin) && isMeaningfulValue(newVin);
+  
+  if (!existingIsPartial || !newIsComplete) return false;
+  
+  // Check if the non-asterisk portions match
+  return vinMatches(existingVin, newVin);
+}
+
 // Interface for vehicle data structure (matching the actual database structure)
 interface ImageDataExtractResponse {
   Vin: string | null;
@@ -254,8 +305,14 @@ async function updateInspectionVehicleDetails(
     ) {
       // Helper function to check if a value is meaningful (not null, undefined, empty, or "N/A")
       // Check if VIN already exists in database (meaningful value)
-      const hasMeaningfulVin = isMeaningfulValue(existingVin) || isMeaningfulValue(existingVehicleDetails.Vin);
-      if (hasMeaningfulVin) {
+      const existingVinValue = existingVin || existingVehicleDetails.Vin;
+      const newVinValue = filteredVehicleDetails.Vin;
+      
+      // Special case: Allow replacement if existing VIN is partial and new VIN completes it
+      const shouldReplaceVin = shouldReplacePartialVin(existingVinValue, newVinValue);
+      
+      const hasMeaningfulVin = isMeaningfulValue(existingVinValue);
+      if (hasMeaningfulVin && !shouldReplaceVin) {
         const sourceDescription =
           currentInspectionType === "extension"
             ? "from screenshot"
@@ -264,6 +321,11 @@ async function updateInspectionVehicleDetails(
           `VIN already exists for ${currentInspectionType} inspection ${inspectionId} (${sourceDescription}), skipping VIN update from gallery image`
         );
         delete filteredVehicleDetails.Vin;
+      } else if (shouldReplaceVin) {
+        console.log(
+          `Replacing partial VIN "${existingVinValue}" with complete VIN "${newVinValue}" for ${currentInspectionType} inspection ${inspectionId}`
+        );
+        // Keep the VIN in filteredVehicleDetails to allow the update
       }
 
       // Check if Mileage already exists in database (meaningful value)
