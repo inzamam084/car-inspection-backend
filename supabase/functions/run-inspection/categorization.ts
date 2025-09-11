@@ -73,6 +73,22 @@ async function retryWithBackoff<T>(
 // Initialize database service
 const dbService = createDatabaseService();
 
+/**
+ * Helper function to check if a value is meaningful (not null, undefined, empty, or placeholder values)
+ */
+function isMeaningfulValue(value: any): boolean {
+  return value && 
+         value !== "" && 
+         value !== "N/A" && 
+         value !== "n/a" && 
+         value !== "None" && 
+         value !== "none" &&
+         value !== "Not Available" &&
+         value !== "not available" &&
+         value !== "Unknown" &&
+         value !== "unknown";
+}
+
 // Interface for vehicle data structure (matching the actual database structure)
 interface ImageDataExtractResponse {
   Vin: string | null;
@@ -158,9 +174,15 @@ function extractAvailableVehicleData(
   // Extract only available vehicle properties and map to database format
   // Note: VIN and Mileage protection is now handled in updateInspectionVehicleDetails()
   Object.entries(analysisResult.vehicle).forEach(([key, property]) => {
-    if (property && property.available && property.value !== "N/A") {
+    if (property && property.available) {
       const dbKey = keyMapping[key];
       if (dbKey) {
+        // Skip if value is "N/A" or other non-meaningful values
+        if (!isMeaningfulValue(property.value)) {
+          console.log(`Skipping ${dbKey} with non-meaningful value: ${property.value}`);
+          return;
+        }
+
         // Handle type conversion for numeric fields
         if (dbKey === "Year" || dbKey === "Mileage") {
           const numValue =
@@ -230,8 +252,10 @@ async function updateInspectionVehicleDetails(
       currentInspectionType === "extension" ||
       currentInspectionType === "detail"
     ) {
-      // Check if VIN already exists in database
-      if (existingVin || existingVehicleDetails.Vin) {
+      // Helper function to check if a value is meaningful (not null, undefined, empty, or "N/A")
+      // Check if VIN already exists in database (meaningful value)
+      const hasMeaningfulVin = isMeaningfulValue(existingVin) || isMeaningfulValue(existingVehicleDetails.Vin);
+      if (hasMeaningfulVin) {
         const sourceDescription =
           currentInspectionType === "extension"
             ? "from screenshot"
@@ -242,8 +266,9 @@ async function updateInspectionVehicleDetails(
         delete filteredVehicleDetails.Vin;
       }
 
-      // Check if Mileage already exists in database
-      if (existingMileage || existingVehicleDetails.Mileage) {
+      // Check if Mileage already exists in database (meaningful value)
+      const hasMeaningfulMileage = isMeaningfulValue(existingMileage) || isMeaningfulValue(existingVehicleDetails.Mileage);
+      if (hasMeaningfulMileage) {
         const sourceDescription =
           currentInspectionType === "extension"
             ? "from screenshot"
