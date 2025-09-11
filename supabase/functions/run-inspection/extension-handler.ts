@@ -145,11 +145,11 @@ export async function processExtensionData(
             }
 
             const result = await response.json();
-            
+
             if (!result.success || !result.payload) {
               throw new Error(`Function call failed: ${JSON.stringify(result)}`);
             }
-            
+
             return result;
           },
           ctx,

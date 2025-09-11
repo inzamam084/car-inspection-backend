@@ -153,16 +153,11 @@ function extractAvailableVehicleData(
   };
 
   // Extract only available vehicle properties and map to database format
+  // Note: VIN and Mileage protection is now handled in updateInspectionVehicleDetails()
   Object.entries(analysisResult.vehicle).forEach(([key, property]) => {
     if (property && property.available && property.value !== "N/A") {
       const dbKey = keyMapping[key];
       if (dbKey) {
-        // Skip VIN and Mileage for "detail" type inspections to preserve manually entered data
-        if (inspectionType === "detail" && (dbKey === "Vin" || dbKey === "Mileage")) {
-          console.log(`Skipping ${dbKey} extraction for "detail" type inspection`);
-          return;
-        }
-
         // Handle type conversion for numeric fields
         if (dbKey === "Year" || dbKey === "Mileage") {
           const numValue =
@@ -188,7 +183,8 @@ function extractAvailableVehicleData(
  */
 async function updateInspectionVehicleDetails(
   inspectionId: string,
-  vehicleDetails: Record<string, any>
+  vehicleDetails: Record<string, any>,
+  inspectionType?: string
 ): Promise<void> {
   if (Object.keys(vehicleDetails).length === 0) {
     console.log(`No vehicle details to update for inspection ${inspectionId}`);
@@ -201,11 +197,11 @@ async function updateInspectionVehicleDetails(
       vehicleDetails
     );
 
-    // First, fetch the existing vehicle_details
+    // First, fetch the existing vehicle_details, vin, mileage, and type
     const { data: existingInspection, error: fetchError } = await dbService
       .getClient()
       .from("inspections")
-      .select("vehicle_details")
+      .select("vehicle_details, vin, mileage, type")
       .eq("id", inspectionId)
       .single();
 
@@ -217,33 +213,75 @@ async function updateInspectionVehicleDetails(
       throw fetchError;
     }
 
-    // Merge existing vehicle details with new ones
     const existingVehicleDetails = existingInspection?.vehicle_details || {};
+    const existingVin = existingInspection?.vin;
+    const existingMileage = existingInspection?.mileage;
+    const currentInspectionType = existingInspection?.type || inspectionType;
+
+    // For extension and detail type inspections, protect VIN and Mileage from being overwritten
+    // - Extension: VIN/Mileage extracted from screenshot should not be overwritten
+    // - Detail: VIN/Mileage provided by user should not be overwritten
+    const filteredVehicleDetails = { ...vehicleDetails };
+
+    if (currentInspectionType === "extension" || currentInspectionType === "detail") {
+      // Check if VIN already exists in database
+      if (existingVin || existingVehicleDetails.Vin) {
+        const sourceDescription = currentInspectionType === "extension" 
+          ? "from screenshot"
+          : "provided by user";
+        console.log(
+          `VIN already exists for ${currentInspectionType} inspection ${inspectionId} (${sourceDescription}), skipping VIN update from gallery image`
+        );
+        delete filteredVehicleDetails.Vin;
+      }
+
+      // Check if Mileage already exists in database
+      if (existingMileage || existingVehicleDetails.Mileage) {
+        const sourceDescription = currentInspectionType === "extension"
+          ? "from screenshot"
+          : "provided by user";
+        console.log(
+          `Mileage already exists for ${currentInspectionType} inspection ${inspectionId} (${sourceDescription}), skipping Mileage update from gallery image`
+        );
+        delete filteredVehicleDetails.Mileage;
+      }
+    }
+
+    // If no vehicle details remain after filtering, skip the update
+    if (Object.keys(filteredVehicleDetails).length === 0) {
+      console.log(
+        `No new vehicle details to update for inspection ${inspectionId} after filtering`
+      );
+      return;
+    }
+
+    // Merge existing vehicle details with new filtered ones
     const mergedVehicleDetails = {
       ...existingVehicleDetails,
-      ...vehicleDetails,
+      ...filteredVehicleDetails,
     };
 
     console.log(`Merging vehicle details for inspection ${inspectionId}:`, {
       existing: existingVehicleDetails,
-      new: vehicleDetails,
+      new: filteredVehicleDetails,
       merged: mergedVehicleDetails,
+      inspection_type: currentInspectionType,
     });
 
     // Prepare update data - always include vehicle_details
     const updateData: any = { vehicle_details: mergedVehicleDetails };
 
-    // If VIN is available, also update the vin column
-    if (vehicleDetails.Vin && typeof vehicleDetails.Vin === "string") {
-      updateData.vin = vehicleDetails.Vin;
-      console.log(`Also updating vin column with: ${vehicleDetails.Vin}`);
+    // If VIN is available in filtered data, also update the vin column
+    if (filteredVehicleDetails.Vin && typeof filteredVehicleDetails.Vin === "string") {
+      updateData.vin = filteredVehicleDetails.Vin;
+      console.log(`Also updating vin column with: ${filteredVehicleDetails.Vin}`);
     }
 
-    // If Mileage is available, also update the mileage column
-    if (vehicleDetails.Mileage && typeof vehicleDetails.Mileage === "number") {
-      updateData.mileage = vehicleDetails.Mileage.toString();
+    // If Mileage is available in filtered data, also update the mileage column
+    if (filteredVehicleDetails.Mileage && typeof filteredVehicleDetails.Mileage === "number") {
+      updateData.mileage = filteredVehicleDetails.Mileage.toString();
       console.log(
-        `Also updating mileage column with: ${vehicleDetails.Mileage}`
+        `Also updating mileage column with: ${filteredVehicleDetails.Mileage}`
       );
     }
 
@@ -462,11 +500,10 @@ export async function categorizeImage(
       }
 
       // Extract vehicle data from final analysis result and update inspection
-      // Skip updating vehicle_details for "detail" type inspections to preserve manually entered data
+      // VIN and Mileage protection is now handled within updateInspectionVehicleDetails()
       if (
         inspectionId &&
         finalAnalysisResult.vehicle
-        // inspectionType !== "detail"
       ) {
         const finalVehicleDetails =
           extractAvailableVehicleData(finalAnalysisResult, inspectionType);
@@ -476,13 +513,10 @@ export async function categorizeImage(
           );
           await updateInspectionVehicleDetails(
             inspectionId,
-            finalVehicleDetails
+            finalVehicleDetails,
+            inspectionType
           );
         }
-      } else if (inspectionType === "detail") {
-        console.log(
-          `Skipping vehicle details update for "detail" type inspection ${inspectionId}`
-        );
       }
 
       // Create a copy of the analysis without vehicle data for fullAnalysis
