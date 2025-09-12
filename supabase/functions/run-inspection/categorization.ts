@@ -303,7 +303,6 @@ async function updateInspectionVehicleDetails(
       currentInspectionType === "extension" ||
       currentInspectionType === "detail"
     ) {
-      // Helper function to check if a value is meaningful (not null, undefined, empty, or "N/A")
       // Check if VIN already exists in database (meaningful value)
       const existingVinValue = existingVin || existingVehicleDetails.Vin;
       const newVinValue = filteredVehicleDetails.Vin;
@@ -339,6 +338,29 @@ async function updateInspectionVehicleDetails(
           `Mileage already exists for ${currentInspectionType} inspection ${inspectionId} (${sourceDescription}), skipping Mileage update from gallery image`
         );
         delete filteredVehicleDetails.Mileage;
+      }
+
+      // NEW LOGIC: If VIN exists from screenshot, protect specific fields from gallery image updates
+      if (hasMeaningfulVin) {
+        const protectedFields = [
+          "Make",
+          "Year", 
+          "Model",
+          "Engine",
+          "Body Style",
+          "Drivetrain",
+          "Title Status",
+          "Transmission"
+        ];
+        
+        protectedFields.forEach(field => {
+          if (filteredVehicleDetails[field] !== undefined) {
+            console.log(
+              `VIN exists from skipping ${field} update from gallery image analysis`
+            );
+            delete filteredVehicleDetails[field];
+          }
+        });
       }
     }
 
