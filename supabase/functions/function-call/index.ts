@@ -167,11 +167,8 @@ Deno.serve(async (req) => {
     functionName = function_name;
     inspectionId = inspection_id || null;
 
-    // Include inspection_id in the inputs if it's provided
+    // Prepare inputs based on function type (will be determined later)
     const inputs = { ...rest };
-    if (inspection_id) {
-      inputs.inspection_id = inspection_id;
-    }
 
     requestData = {
       inputs: inputs,
@@ -182,32 +179,32 @@ Deno.serve(async (req) => {
 
     // Get user_id from function params or JWT token
     userId = user_id || null;
-    if (!userId) {
-      logDebug(requestId, "Attempting to extract user from JWT token");
-      try {
-        const authHeader = req.headers.get("Authorization");
-        if (authHeader) {
-          const token = authHeader.replace("Bearer ", "");
-          // Create a temporary supabase client to get user from JWT
-          const tempSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-          const {
-            data: { user },
-          } = await tempSupabase.auth.getUser(token);
-          userId = user?.id || null;
-          logDebug(requestId, "User extracted from JWT", {
-            userId: userId ? "[PRESENT]" : "[MISSING]",
-          });
-        } else {
-          logWarning(requestId, "No Authorization header found");
-        }
-      } catch (authError) {
-        logWarning(requestId, "Could not extract user from JWT", authError);
-      }
-    } else {
-      logDebug(requestId, "User ID provided in request", {
-        userId: "[PRESENT]",
-      });
-    }
+    // if (!userId) {
+    //   logDebug(requestId, "Attempting to extract user from JWT token");
+    //   try {
+    //     const authHeader = req.headers.get("Authorization");
+    //     if (authHeader) {
+    //       const token = authHeader.replace("Bearer ", "");
+    //       // Create a temporary supabase client to get user from JWT
+    //       const tempSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    //       const {
+    //         data: { user },
+    //       } = await tempSupabase.auth.getUser(token);
+    //       userId = user?.id || null;
+    //       logDebug(requestId, "User extracted from JWT", {
+    //         userId: userId ? "[PRESENT]" : "[MISSING]",
+    //       });
+    //     } else {
+    //       logWarning(requestId, "No Authorization header found");
+    //     }
+    //   } catch (authError) {
+    //     logWarning(requestId, "Could not extract user from JWT", authError);
+    //   }
+    // } else {
+    //   logDebug(requestId, "User ID provided in request", {
+    //     userId: "[PRESENT]",
+    //   });
+    // }
 
     if (!function_name) {
       errorMessage = "function_name parameter is required";
@@ -309,9 +306,21 @@ Deno.serve(async (req) => {
       files_count: files ? files.length : 0,
     });
 
-    // Prepare the request body for Dify API
+    // Prepare the request body for Dify API based on function type
+    let difyInputs;
+    if (mappingData.type === "completion") {
+      // For completion: only include query in inputs
+      difyInputs = { query: inputs.query };
+    } else {
+      // For workflow: include all inputs including inspection_id
+      difyInputs = { ...inputs };
+      if (inspection_id) {
+        difyInputs.inspection_id = inspection_id;
+      }
+    }
+
     const difyRequestBody: any = {
-      inputs: { query: inputs.query },
+      inputs: difyInputs,
       user: "abc-123",
       response_mode,
     };
