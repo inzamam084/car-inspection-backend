@@ -321,6 +321,8 @@ Deno.serve(async (req) => {
       difyRequestBody.files = files;
     }
 
+    console.log("DIFY REQUEST BODY : ", difyRequestBody)
+
     const response = await fetch(difyUrl, {
       method: "POST",
       headers: {
