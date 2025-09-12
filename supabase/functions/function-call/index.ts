@@ -311,7 +311,7 @@ Deno.serve(async (req) => {
 
     // Prepare the request body for Dify API
     const difyRequestBody: any = {
-      inputs: inputs,
+      inputs: { query: inputs.query },
       user: "abc-123",
       response_mode,
     };
@@ -321,7 +321,7 @@ Deno.serve(async (req) => {
       difyRequestBody.files = files;
     }
 
-    console.log("DIFY REQUEST BODY : ", difyRequestBody)
+    console.log("DIFY REQUEST BODY : ", difyRequestBody);
 
     const response = await fetch(difyUrl, {
       method: "POST",
