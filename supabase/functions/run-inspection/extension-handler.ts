@@ -169,12 +169,12 @@ export async function processExtensionData(
 
             if (!response.ok) {
               const errorText = await response.text();
-              
+
               // Check if it's a Google service issue (502 Bad Gateway)
               if (response.status >= 500 || errorText.includes('502 Bad Gateway') || errorText.includes('PluginDaemonInnerError')) {
                 throw new Error(`Temporary service unavailable (${response.status}): Google Vision API may be experiencing issues`);
               }
-              
+
               throw new Error(`HTTP ${response.status}: ${errorText}`);
             }
 
