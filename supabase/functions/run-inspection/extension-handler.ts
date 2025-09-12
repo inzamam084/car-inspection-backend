@@ -169,6 +169,12 @@ export async function processExtensionData(
 
             if (!response.ok) {
               const errorText = await response.text();
+              
+              // Check if it's a Google service issue (502 Bad Gateway)
+              if (response.status >= 500 || errorText.includes('502 Bad Gateway') || errorText.includes('PluginDaemonInnerError')) {
+                throw new Error(`Temporary service unavailable (${response.status}): Google Vision API may be experiencing issues`);
+              }
+              
               throw new Error(`HTTP ${response.status}: ${errorText}`);
             }
 
@@ -241,20 +247,40 @@ export async function processExtensionData(
           // Continue with null extractedVehicleData - process will continue
         }
       } catch (error) {
-        ctx.warn(
-          "Screenshot data extraction failed after retries, continuing with original vehicle data",
+        ctx.error(
+          "Screenshot data extraction failed after retries - failing inspection due to incomplete vehicle data",
           {
             inspection_id: inspectionId,
             error: (error as Error).message,
           }
         );
-        // Don't throw error - continue with null extractedVehicleData
-        // The process will continue using the original vehicleData
+        
+        // Mark inspection as failed due to screenshot analysis failure
+        await StatusManager.markAsFailed(
+          inspectionId,
+          `Screenshot analysis failed: ${(error as Error).message}`
+        );
+        
+        return {
+          success: false,
+          error: `Screenshot analysis required for extension inspections failed: ${(error as Error).message}`,
+        };
       }
     } else {
-      ctx.info("No page screenshot available for vehicle data extraction", {
+      ctx.info("No page screenshot available for vehicle data extraction - failing extension inspection", {
         inspection_id: inspectionId,
       });
+      
+      // // Mark inspection as failed due to missing screenshot
+      // await StatusManager.markAsFailed(
+      //   inspectionId,
+      //   "Screenshot analysis required for extension inspections but no screenshot available"
+      // );
+      
+      // return {
+      //   success: false,
+      //   error: "Screenshot analysis required for extension inspections but no screenshot was provided",
+      // };
     }
 
     // Step 4: Update status to processing and start image processing
@@ -325,6 +351,22 @@ export async function processExtensionData(
     ctx.error("Error processing extension data", {
       error: (error as Error).message,
     });
+    
+    // If we have an inspection ID, mark it as failed
+    if (ctx.inspectionId) {
+      try {
+        await StatusManager.markAsFailed(
+          ctx.inspectionId,
+          `Extension processing failed: ${(error as Error).message}`
+        );
+      } catch (statusError) {
+        ctx.error("Failed to update inspection status to failed", {
+          inspection_id: ctx.inspectionId,
+          error: (statusError as Error).message,
+        });
+      }
+    }
+    
     return {
       success: false,
       error: (error as Error).message,
