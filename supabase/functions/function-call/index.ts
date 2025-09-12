@@ -390,13 +390,117 @@ Deno.serve(async (req) => {
 
     if (!response.ok) {
       const errorText = await response.text();
+      
+      // Parse error details for better diagnostics
+      let parsedError: any = null;
+      try {
+        parsedError = JSON.parse(errorText);
+      } catch (parseError) {
+        // Error text is not JSON, keep as string
+      }
+      
+      // Check for specific Dify API validation errors
+      const isAnswerValidationError = errorText.includes('Input should be a valid string [type=string_type, input_value=[], input_type=list]');
+      const isAnswerFieldError = errorText.includes('answer') && errorText.includes('validation error');
+      const isPluginError = errorText.includes('PluginDaemonInnerError') || errorText.includes('PluginInvokeError');
+      
       errorMessage = `Dify API request failed: ${response.status} - ${errorText}`;
+      
       logError(requestId, "Dify API request failed", {
         status: response.status,
         statusText: response.statusText,
         url: difyUrl,
         errorText: truncateIfNeeded(errorText),
+        function_name: functionName,
+        is_answer_validation_error: isAnswerValidationError,
+        is_answer_field_error: isAnswerFieldError,
+        is_plugin_error: isPluginError,
+        parsed_error: parsedError,
       });
+
+      // Provide specific diagnostics for known error types
+      let diagnostics: any = {};
+      let userFriendlyMessage = "Dify API request failed";
+      
+      if (isAnswerValidationError) {
+        logError(requestId, "🚨 DIFY APP CONFIGURATION ISSUE: Answer field validation error", {
+          function_name: functionName,
+          issue: "Dify app is configured to return an array but system expects string",
+          recommendation: "Check Dify app output variable configuration",
+          app_id: mappingData.app_id,
+          app_name: mappingData.app_name,
+          dify_error_code: parsedError?.code,
+          dify_error_message: parsedError?.message,
+        });
+        
+        userFriendlyMessage = "Dify app configuration error";
+        diagnostics = {
+          error_type: "dify_app_configuration_error",
+          issue: "App output variable type mismatch",
+          description: "The Dify app is configured to return an array for the answer field, but the API expects a string",
+          solution: "In Dify app settings, ensure the output variable is configured as 'string' type, not 'array'",
+          app_details: {
+            app_id: mappingData.app_id,
+            app_name: mappingData.app_name,
+            function_name: functionName,
+          },
+          technical_details: {
+            dify_error_code: parsedError?.code,
+            dify_error_message: parsedError?.message,
+            expected_type: "string",
+            received_type: "array (empty)",
+          }
+        };
+      } else if (isPluginError) {
+        logError(requestId, "🚨 DIFY PLUGIN ERROR: Plugin execution failed", {
+          function_name: functionName,
+          issue: "Dify plugin encountered an error during execution",
+          app_id: mappingData.app_id,
+          app_name: mappingData.app_name,
+          dify_error_code: parsedError?.code,
+          dify_error_message: parsedError?.message,
+        });
+        
+        userFriendlyMessage = "Dify plugin execution error";
+        diagnostics = {
+          error_type: "dify_plugin_error",
+          issue: "Plugin execution failed",
+          description: "The Dify app's plugin encountered an error during execution",
+          solution: "Check the Dify app's plugin configuration and ensure all required services are available",
+          app_details: {
+            app_id: mappingData.app_id,
+            app_name: mappingData.app_name,
+            function_name: functionName,
+          },
+          technical_details: {
+            dify_error_code: parsedError?.code,
+            dify_error_message: parsedError?.message,
+          }
+        };
+      } else if (response.status === 400) {
+        diagnostics = {
+          error_type: "dify_bad_request",
+          issue: "Invalid request parameters",
+          description: "The request to Dify API was malformed or contained invalid parameters",
+          solution: "Check the request parameters and ensure they match the Dify API specification",
+          technical_details: {
+            dify_error_code: parsedError?.code,
+            dify_error_message: parsedError?.message,
+            status_code: response.status,
+          }
+        };
+      } else if (response.status >= 500) {
+        diagnostics = {
+          error_type: "dify_server_error",
+          issue: "Dify server error",
+          description: "The Dify API server encountered an internal error",
+          solution: "This is likely a temporary issue. Try again in a few moments",
+          technical_details: {
+            status_code: response.status,
+            status_text: response.statusText,
+          }
+        };
+      }
 
       // Log error to database
       const endTime = Date.now();
@@ -416,9 +520,12 @@ Deno.serve(async (req) => {
 
       return new Response(
         JSON.stringify({
-          error: "Dify API request failed",
+          error: userFriendlyMessage,
           status: response.status,
           details: errorText,
+          diagnostics: Object.keys(diagnostics).length > 0 ? diagnostics : undefined,
+          timestamp: new Date().toISOString(),
+          request_id: requestId,
         }),
         {
           status: response.status,
