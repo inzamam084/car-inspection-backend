@@ -161,7 +161,7 @@ export async function processExtensionData(
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
-                  Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+                  // Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
                 },
                 body: JSON.stringify(functionCallPayload),
               }
