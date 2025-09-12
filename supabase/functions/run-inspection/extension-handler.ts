@@ -112,7 +112,7 @@ export async function processExtensionData(
       null, // No extracted data yet
       ctx
     );
-    
+
     if (!inspectionResult.success || !inspectionResult.inspectionId) {
       ctx.error("Failed to create inspection", {
         error: inspectionResult.error,
@@ -171,8 +171,14 @@ export async function processExtensionData(
               const errorText = await response.text();
 
               // Check if it's a Google service issue (502 Bad Gateway)
-              if (response.status >= 500 || errorText.includes('502 Bad Gateway') || errorText.includes('PluginDaemonInnerError')) {
-                throw new Error(`Temporary service unavailable (${response.status}): Google Vision API may be experiencing issues`);
+              if (
+                response.status >= 500 ||
+                errorText.includes("502 Bad Gateway") ||
+                errorText.includes("PluginDaemonInnerError")
+              ) {
+                throw new Error(
+                  `Temporary service unavailable (${response.status}): Google Vision API may be experiencing issues`
+                );
               }
 
               throw new Error(`HTTP ${response.status}: ${errorText}`);
@@ -217,7 +223,7 @@ export async function processExtensionData(
             has_year: !!extractedVehicleData?.Year,
             has_mileage: !!extractedVehicleData?.Mileage,
           });
-          
+
           // Step 3: Update the inspection with extracted vehicle data
           if (extractedVehicleData) {
             ctx.debug("Updating inspection with extracted vehicle data");
@@ -225,17 +231,24 @@ export async function processExtensionData(
               await Database.updateInspectionStatusWithFields(
                 inspectionId,
                 "pending", // Keep status as pending during setup
-                { vehicle_details: extractedVehicleData },
+                {
+                  vehicle_details: extractedVehicleData,
+                  vin: extractedVehicleData.Vin || null,
+                  mileage: extractedVehicleData.Mileage || null,
+                },
                 ctx
               );
               ctx.info("Successfully updated inspection with extracted data", {
                 inspection_id: inspectionId,
               });
             } catch (updateError) {
-              ctx.warn("Failed to update inspection with extracted data, continuing", {
-                inspection_id: inspectionId,
-                error: (updateError as Error).message,
-              });
+              ctx.warn(
+                "Failed to update inspection with extracted data, continuing",
+                {
+                  inspection_id: inspectionId,
+                  error: (updateError as Error).message,
+                }
+              );
             }
           }
         } catch (parseError) {
@@ -254,29 +267,34 @@ export async function processExtensionData(
             error: (error as Error).message,
           }
         );
-        
+
         // Mark inspection as failed due to screenshot analysis failure
         await StatusManager.markAsFailed(
           inspectionId,
           `Screenshot analysis failed: ${(error as Error).message}`
         );
-        
+
         return {
           success: false,
-          error: `Screenshot analysis required for extension inspections failed: ${(error as Error).message}`,
+          error: `Screenshot analysis required for extension inspections failed: ${
+            (error as Error).message
+          }`,
         };
       }
     } else {
-      ctx.info("No page screenshot available for vehicle data extraction - failing extension inspection", {
-        inspection_id: inspectionId,
-      });
-      
+      ctx.info(
+        "No page screenshot available for vehicle data extraction - failing extension inspection",
+        {
+          inspection_id: inspectionId,
+        }
+      );
+
       // // Mark inspection as failed due to missing screenshot
       // await StatusManager.markAsFailed(
       //   inspectionId,
       //   "Screenshot analysis required for extension inspections but no screenshot available"
       // );
-      
+
       // return {
       //   success: false,
       //   error: "Screenshot analysis required for extension inspections but no screenshot was provided",
@@ -351,7 +369,7 @@ export async function processExtensionData(
     ctx.error("Error processing extension data", {
       error: (error as Error).message,
     });
-    
+
     // If we have an inspection ID, mark it as failed
     if (ctx.inspectionId) {
       try {
@@ -366,7 +384,7 @@ export async function processExtensionData(
         });
       }
     }
-    
+
     return {
       success: false,
       error: (error as Error).message,
