@@ -321,6 +321,7 @@ Deno.serve(async (req) => {
     delete sanitizedInputs.metadata; // Remove if accidentally included
     delete sanitizedInputs.task_id; // Remove if accidentally included
     delete sanitizedInputs.conversation_id; // Remove if accidentally included
+    delete sanitizedInputs.inspection_id; // Remove internal tracking field if present
 
     logDebug(requestId, "Sanitized inputs for Dify API", {
       function_name: functionName,
