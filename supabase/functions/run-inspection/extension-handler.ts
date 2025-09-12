@@ -141,8 +141,8 @@ export async function processExtensionData(
         const functionCallPayload = {
           function_name: "image_data_extract",
           query: "Provide the results with the image url",
-          inspection_id: inspectionId, // Now we have a valid inspection ID
-          user_id: ctx.userId,
+          // inspection_id: inspectionId, // Now we have a valid inspection ID
+          // user_id: ctx.userId,
           files: [
             {
               type: "image",
