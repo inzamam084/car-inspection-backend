@@ -89,32 +89,33 @@ function logDebug(requestId: string, message: string, data?: any): void {
   );
 }
 
-// Define the response interface for the Dify API
+// Define the response interface for the Dify API based on official documentation
 interface DifyResponse {
-  id: string;
-  answer: string;
-  created_at: number;
-  conversation_id?: string;
-  task_id?: string;
-  message_id?: string;
-  event?: string;
-  mode?: string;
+  event: string; // Event type, typically 'message' for blocking mode
+  message_id: string; // Unique message ID (UUID)
+  mode: string; // App mode, 'completion' for completion API
+  answer: string; // Complete response content - should always be string according to Dify docs
   metadata?: {
     usage?: {
-      completion_tokens: number;
       prompt_tokens: number;
+      prompt_unit_price?: string;
+      prompt_price_unit?: string;
+      prompt_price?: string;
+      completion_tokens: number;
+      completion_unit_price?: string;
+      completion_price_unit?: string;
+      completion_price?: string;
       total_tokens: number;
       total_price?: string;
       currency?: string;
       latency?: number;
-      prompt_unit_price?: string;
-      prompt_price_unit?: string;
-      prompt_price?: string;
-      completion_unit_price?: string;
-      completion_price_unit?: string;
-      completion_price?: string;
     };
   };
+  created_at: number; // Message creation timestamp (Unix epoch)
+  // Legacy fields for backward compatibility
+  id?: string;
+  conversation_id?: string;
+  task_id?: string;
 }
 
 // Define streaming event interfaces
@@ -411,17 +412,117 @@ Deno.serve(async (req) => {
 
       return new Response(stream, { headers });
     } else {
-      // Handle blocking response (existing logic)
-      const difyResponse: DifyResponse = await response.json();
+      // Handle blocking response according to Dify API specification
+      const rawResponse = await response.json();
+      
+      logDebug(requestId, "Raw Dify API response received", {
+        function_name: functionName,
+        response_keys: Object.keys(rawResponse),
+        event: rawResponse.event,
+        mode: rawResponse.mode,
+        answer_type: typeof rawResponse.answer,
+        answer_is_array: Array.isArray(rawResponse.answer),
+        answer_length: rawResponse.answer?.length,
+      });
 
-      logInfo(requestId, "Dify API response received successfully", {
-        response_id: difyResponse.id,
-        task_id: difyResponse.task_id,
-        message_id: difyResponse.message_id,
+      // Validate response structure according to Dify API specification
+      if (!rawResponse.event || !rawResponse.message_id || !rawResponse.mode) {
+        logError(requestId, "Invalid Dify API response structure - missing required fields", {
+          function_name: functionName,
+          has_event: !!rawResponse.event,
+          has_message_id: !!rawResponse.message_id,
+          has_mode: !!rawResponse.mode,
+          response_keys: Object.keys(rawResponse),
+        });
+        
+        errorMessage = "Invalid response structure from Dify API - missing required fields";
+        const endTime = Date.now();
+        const endedAt = new Date().toISOString();
+        const executionTime = (endTime - startTime) / 1000;
+
+        await logActivity(supabase, {
+          user_id: userId,
+          inspection_id: inspectionId,
+          function_name: functionName,
+          request_data: requestData,
+          error: errorMessage,
+          started_at: startedAt,
+          ended_at: endedAt,
+          execution_time: executionTime,
+        });
+
+        return new Response(
+          JSON.stringify({
+            error: "Invalid response from Dify API",
+            details: "Response missing required fields (event, message_id, mode)",
+          }),
+          { status: 502, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      // Handle answer field according to Dify specification (should always be string)
+      let sanitizedAnswer: string;
+      if (typeof rawResponse.answer === 'string') {
+        sanitizedAnswer = rawResponse.answer;
+      } else if (Array.isArray(rawResponse.answer)) {
+        // This violates Dify API spec but we'll handle it gracefully
+        if (rawResponse.answer.length === 0) {
+          logError(requestId, "DIFY API SPEC VIOLATION: answer field is empty array (should be string)", {
+            function_name: functionName,
+            message_id: rawResponse.message_id,
+            event: rawResponse.event,
+            mode: rawResponse.mode,
+          });
+          sanitizedAnswer = ""; // Convert empty array to empty string
+        } else {
+          logError(requestId, "DIFY API SPEC VIOLATION: answer field is non-empty array (should be string)", {
+            function_name: functionName,
+            message_id: rawResponse.message_id,
+            array_length: rawResponse.answer.length,
+            array_content: rawResponse.answer,
+          });
+          sanitizedAnswer = JSON.stringify(rawResponse.answer);
+        }
+      } else if (rawResponse.answer === null || rawResponse.answer === undefined) {
+        logError(requestId, "DIFY API SPEC VIOLATION: answer field is null/undefined (should be string)", {
+          function_name: functionName,
+          message_id: rawResponse.message_id,
+          answer_value: rawResponse.answer,
+        });
+        sanitizedAnswer = "";
+      } else {
+        logError(requestId, "DIFY API SPEC VIOLATION: answer field has unexpected type (should be string)", {
+          function_name: functionName,
+          message_id: rawResponse.message_id,
+          answer_type: typeof rawResponse.answer,
+          answer_value: rawResponse.answer,
+        });
+        sanitizedAnswer = String(rawResponse.answer);
+      }
+
+      // Create properly structured response according to Dify API spec
+      const difyResponse: DifyResponse = {
+        event: rawResponse.event,
+        message_id: rawResponse.message_id,
+        mode: rawResponse.mode,
+        answer: sanitizedAnswer,
+        metadata: rawResponse.metadata,
+        created_at: rawResponse.created_at,
+        // Include legacy fields for backward compatibility
+        id: rawResponse.id || rawResponse.message_id,
+        conversation_id: rawResponse.conversation_id,
+        task_id: rawResponse.task_id,
+      };
+
+      logInfo(requestId, "Dify API response processed successfully", {
         event: difyResponse.event,
+        message_id: difyResponse.message_id,
         mode: difyResponse.mode,
-        answer_length: difyResponse.answer?.length || 0,
+        answer_length: sanitizedAnswer?.length || 0,
+        answer_type: typeof sanitizedAnswer,
         has_usage_data: !!difyResponse.metadata?.usage,
+        was_answer_sanitized: sanitizedAnswer !== rawResponse.answer,
+        spec_compliant: typeof rawResponse.answer === 'string',
       });
 
       if (difyResponse.metadata?.usage) {
@@ -457,19 +558,13 @@ Deno.serve(async (req) => {
         response_data: difyResponse,
         answer: difyResponse.answer || null,
         prompt_tokens: difyResponse.metadata?.usage?.prompt_tokens || null,
-        prompt_unit_price:
-          difyResponse.metadata?.usage?.prompt_unit_price || null,
-        prompt_price_unit:
-          difyResponse.metadata?.usage?.prompt_price_unit || null,
+        prompt_unit_price: difyResponse.metadata?.usage?.prompt_unit_price || null,
+        prompt_price_unit: difyResponse.metadata?.usage?.prompt_price_unit || null,
         prompt_price: difyResponse.metadata?.usage?.prompt_price || null,
-        completion_tokens:
-          difyResponse.metadata?.usage?.completion_tokens || null,
-        completion_unit_price:
-          difyResponse.metadata?.usage?.completion_unit_price || null,
-        completion_price_unit:
-          difyResponse.metadata?.usage?.completion_price_unit || null,
-        completion_price:
-          difyResponse.metadata?.usage?.completion_price || null,
+        completion_tokens: difyResponse.metadata?.usage?.completion_tokens || null,
+        completion_unit_price: difyResponse.metadata?.usage?.completion_unit_price || null,
+        completion_price_unit: difyResponse.metadata?.usage?.completion_price_unit || null,
+        completion_price: difyResponse.metadata?.usage?.completion_price || null,
         total_tokens: difyResponse.metadata?.usage?.total_tokens || null,
         total_price: difyResponse.metadata?.usage?.total_price || null,
         currency: difyResponse.metadata?.usage?.currency || "USD",
@@ -482,14 +577,22 @@ Deno.serve(async (req) => {
       logInfo(requestId, "Function call completed successfully", {
         execution_time: executionTime,
         answer_length: difyResponse.answer?.length || 0,
+        spec_compliant: typeof rawResponse.answer === 'string',
       });
 
-      // Return the Dify API response
+      // Return the Dify API response with properly structured data
       return new Response(
         JSON.stringify({
           success: true,
           payload: difyResponse.answer,
           metadata: difyResponse.metadata,
+          // Include additional context for debugging
+          dify_response_info: {
+            event: difyResponse.event,
+            message_id: difyResponse.message_id,
+            mode: difyResponse.mode,
+            spec_compliant: typeof rawResponse.answer === 'string',
+          },
         }),
         {
           status: 200,
