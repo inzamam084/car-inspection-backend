@@ -7,7 +7,7 @@ import { RequestContext } from "./logging.ts";
 const dbService = createDatabaseService();
 
 /**
- * Centralized database operations for run-inspection 
+ * Centralized database operations for run-inspection
  */
 export class Database {
   /**
@@ -133,7 +133,7 @@ export class Database {
   }> {
     try {
       // Use extracted data as primary source, fall back to vehicleData
-      const vin = extractedVehicleData?.Vin || vehicleData.vin;
+      const vin = extractedVehicleData?.Vin;
       const mileage =
         extractedVehicleData?.Mileage?.toString() || vehicleData.mileage;
 

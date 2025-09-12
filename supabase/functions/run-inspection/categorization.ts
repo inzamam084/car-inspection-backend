@@ -23,7 +23,7 @@ async function retryWithBackoff<T>(
   config = RETRY_CONFIG
 ): Promise<T> {
   let lastError: Error;
-  
+
   for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
     try {
       if (attempt > 0) {
@@ -31,28 +31,31 @@ async function retryWithBackoff<T>(
           config.baseDelayMs * Math.pow(config.backoffMultiplier, attempt - 1),
           config.maxDelayMs
         );
-        
+
         console.log(`Retrying ${operationName}`, {
           attempt: attempt + 1,
           maxRetries: config.maxRetries + 1,
           delayMs: delay,
         });
-        
-        await new Promise(resolve => setTimeout(resolve, delay));
+
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
-      
+
       return await operation();
     } catch (error) {
       lastError = error as Error;
-      
+
       if (attempt === config.maxRetries) {
-        console.error(`${operationName} failed after ${config.maxRetries + 1} attempts`, {
-          error: lastError.message,
-          totalAttempts: attempt + 1,
-        });
+        console.error(
+          `${operationName} failed after ${config.maxRetries + 1} attempts`,
+          {
+            error: lastError.message,
+            totalAttempts: attempt + 1,
+          }
+        );
         throw lastError;
       }
-      
+
       console.warn(`${operationName} failed, will retry`, {
         attempt: attempt + 1,
         error: lastError.message,
@@ -63,12 +66,82 @@ async function retryWithBackoff<T>(
       });
     }
   }
-  
+
   throw lastError!;
 }
 
 // Initialize database service
 const dbService = createDatabaseService();
+
+/**
+ * Helper function to check if a value is meaningful (not null, undefined, empty, or placeholder values)
+ */
+function isMeaningfulValue(value: any): boolean {
+  return (
+    value &&
+    value !== "" &&
+    value !== "N/A" &&
+    value !== "n/a" &&
+    value !== "None" &&
+    value !== "none" &&
+    value !== "Not Available" &&
+    value !== "not available" &&
+    value !== "Unknown" &&
+    value !== "unknown"
+  );
+}
+
+/**
+ * Helper function to check if a VIN is partially redacted (contains asterisks)
+ */
+function isPartialVin(vin: string): boolean {
+  return typeof vin === "string" && vin.includes("*");
+}
+
+/**
+ * Helper function to compare a partial VIN (with asterisks) with a complete VIN
+ * Returns true if the non-asterisk portions match
+ */
+function vinMatches(partialVin: string, completeVin: string): boolean {
+  if (!partialVin || !completeVin) return false;
+  if (typeof partialVin !== "string" || typeof completeVin !== "string")
+    return false;
+
+  // Ensure both VINs are the same length (standard VIN is 17 characters)
+  if (partialVin.length !== completeVin.length) return false;
+
+  // Compare character by character, ignoring asterisks in partial VIN
+  for (let i = 0; i < partialVin.length; i++) {
+    if (partialVin[i] === "*") {
+      continue; // Skip asterisks in partial VIN
+    }
+    if (partialVin[i].toUpperCase() !== completeVin[i].toUpperCase()) {
+      return false; // Non-asterisk characters must match
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Helper function to check if a complete VIN should replace a partial VIN
+ * Returns true if:
+ * 1. Existing VIN is partial (contains asterisks) AND
+ * 2. New VIN is complete (no asterisks) AND
+ * 3. The non-asterisk portions match
+ */
+function shouldReplacePartialVin(existingVin: string, newVin: string): boolean {
+  if (!existingVin || !newVin) return false;
+
+  // Only replace if existing VIN is partial and new VIN is complete
+  const existingIsPartial = isPartialVin(existingVin);
+  const newIsComplete = !isPartialVin(newVin) && isMeaningfulValue(newVin);
+
+  if (!existingIsPartial || !newIsComplete) return false;
+
+  // Check if the non-asterisk portions match
+  return vinMatches(existingVin, newVin);
+}
 
 // Interface for vehicle data structure (matching the actual database structure)
 interface ImageDataExtractResponse {
@@ -153,13 +226,16 @@ function extractAvailableVehicleData(
   };
 
   // Extract only available vehicle properties and map to database format
+  // Note: VIN and Mileage protection is now handled in updateInspectionVehicleDetails()
   Object.entries(analysisResult.vehicle).forEach(([key, property]) => {
-    if (property && property.available && property.value !== "N/A") {
+    if (property && property.available) {
       const dbKey = keyMapping[key];
       if (dbKey) {
-        // Skip VIN and Mileage for "detail" type inspections to preserve manually entered data
-        if (inspectionType === "detail" && (dbKey === "Vin" || dbKey === "Mileage")) {
-          console.log(`Skipping ${dbKey} extraction for "detail" type inspection`);
+        // Skip if value is "N/A" or other non-meaningful values
+        if (!isMeaningfulValue(property.value)) {
+          console.log(
+            `Skipping ${dbKey} with non-meaningful value: ${property.value}`
+          );
           return;
         }
 
@@ -188,7 +264,8 @@ function extractAvailableVehicleData(
  */
 async function updateInspectionVehicleDetails(
   inspectionId: string,
-  vehicleDetails: Record<string, any>
+  vehicleDetails: Record<string, any>,
+  inspectionType?: string
 ): Promise<void> {
   if (Object.keys(vehicleDetails).length === 0) {
     console.log(`No vehicle details to update for inspection ${inspectionId}`);
@@ -201,11 +278,11 @@ async function updateInspectionVehicleDetails(
       vehicleDetails
     );
 
-    // First, fetch the existing vehicle_details
+    // First, fetch the existing vehicle_details, vin, mileage, and type
     const { data: existingInspection, error: fetchError } = await dbService
       .getClient()
       .from("inspections")
-      .select("vehicle_details")
+      .select("vehicle_details, vin, mileage, type")
       .eq("id", inspectionId)
       .single();
 
@@ -217,33 +294,129 @@ async function updateInspectionVehicleDetails(
       throw fetchError;
     }
 
-    // Merge existing vehicle details with new ones
     const existingVehicleDetails = existingInspection?.vehicle_details || {};
+    const existingVin = existingInspection?.vin;
+    const existingMileage = existingInspection?.mileage;
+    const currentInspectionType = existingInspection?.type || inspectionType;
+
+    // For extension and detail type inspections, protect VIN and Mileage from being overwritten
+    // - Extension: VIN/Mileage extracted from screenshot should not be overwritten
+    // - Detail: VIN/Mileage provided by user should not be overwritten
+    const filteredVehicleDetails = { ...vehicleDetails };
+
+    if (
+      currentInspectionType === "extension" ||
+      currentInspectionType === "detail"
+    ) {
+      // Check if VIN already exists in database (meaningful value)
+      const existingVinValue = existingVin || existingVehicleDetails.Vin;
+      const newVinValue = filteredVehicleDetails.Vin;
+
+      // Special case: Allow replacement if existing VIN is partial and new VIN completes it
+      const shouldReplaceVin = shouldReplacePartialVin(
+        existingVinValue,
+        newVinValue
+      );
+
+      const hasMeaningfulVin = isMeaningfulValue(existingVinValue);
+      if (hasMeaningfulVin && !shouldReplaceVin) {
+        const sourceDescription =
+          currentInspectionType === "extension"
+            ? "from screenshot"
+            : "provided by user";
+        console.log(
+          `VIN already exists for ${currentInspectionType} inspection ${inspectionId} (${sourceDescription}), skipping VIN update from gallery image`
+        );
+        delete filteredVehicleDetails.Vin;
+      } else if (shouldReplaceVin) {
+        console.log(
+          `Replacing partial VIN "${existingVinValue}" with complete VIN "${newVinValue}" for ${currentInspectionType} inspection ${inspectionId}`
+        );
+        // Keep the VIN in filteredVehicleDetails to allow the update
+      }
+
+      // Check if Mileage already exists in database (meaningful value)
+      const hasMeaningfulMileage =
+        isMeaningfulValue(existingMileage) ||
+        isMeaningfulValue(existingVehicleDetails.Mileage);
+      if (hasMeaningfulMileage) {
+        const sourceDescription =
+          currentInspectionType === "extension"
+            ? "from screenshot"
+            : "provided by user";
+        console.log(
+          `Mileage already exists for ${currentInspectionType} inspection ${inspectionId} (${sourceDescription}), skipping Mileage update from gallery image`
+        );
+        delete filteredVehicleDetails.Mileage;
+      }
+
+      // NEW LOGIC: If VIN exists from screenshot, protect specific fields from gallery image updates
+      if (hasMeaningfulVin) {
+        const protectedFields = [
+          "Make",
+          "Year",
+          "Model",
+          "Engine",
+          "Body Style",
+          "Drivetrain",
+          "Title Status",
+          "Transmission",
+        ];
+
+        protectedFields.forEach((field) => {
+          if (filteredVehicleDetails[field] !== undefined) {
+            console.log(
+              `VIN exists from skipping ${field} update from gallery image analysis`
+            );
+            delete filteredVehicleDetails[field];
+          }
+        });
+      }
+    }
+
+    // If no vehicle details remain after filtering, skip the update
+    if (Object.keys(filteredVehicleDetails).length === 0) {
+      console.log(
+        `No new vehicle details to update for inspection ${inspectionId} after filtering`
+      );
+      return;
+    }
+
+    // Merge existing vehicle details with new filtered ones
     const mergedVehicleDetails = {
       ...existingVehicleDetails,
-      ...vehicleDetails,
+      ...filteredVehicleDetails,
     };
 
     console.log(`Merging vehicle details for inspection ${inspectionId}:`, {
       existing: existingVehicleDetails,
-      new: vehicleDetails,
+      new: filteredVehicleDetails,
       merged: mergedVehicleDetails,
+      inspection_type: currentInspectionType,
     });
 
     // Prepare update data - always include vehicle_details
     const updateData: any = { vehicle_details: mergedVehicleDetails };
 
-    // If VIN is available, also update the vin column
-    if (vehicleDetails.Vin && typeof vehicleDetails.Vin === "string") {
-      updateData.vin = vehicleDetails.Vin;
-      console.log(`Also updating vin column with: ${vehicleDetails.Vin}`);
+    // If VIN is available in filtered data, also update the vin column
+    if (
+      filteredVehicleDetails.Vin &&
+      typeof filteredVehicleDetails.Vin === "string"
+    ) {
+      updateData.vin = filteredVehicleDetails.Vin;
+      console.log(
+        `Also updating vin column with: ${filteredVehicleDetails.Vin}`
+      );
     }
 
-    // If Mileage is available, also update the mileage column
-    if (vehicleDetails.Mileage && typeof vehicleDetails.Mileage === "number") {
-      updateData.mileage = vehicleDetails.Mileage.toString();
+    // If Mileage is available in filtered data, also update the mileage column
+    if (
+      filteredVehicleDetails.Mileage &&
+      typeof filteredVehicleDetails.Mileage === "number"
+    ) {
+      updateData.mileage = filteredVehicleDetails.Mileage.toString();
       console.log(
-        `Also updating mileage column with: ${vehicleDetails.Mileage}`
+        `Also updating mileage column with: ${filteredVehicleDetails.Mileage}`
       );
     }
 
@@ -311,38 +484,41 @@ export async function categorizeImage(
     // Call the function-call edge function with retry logic
     let data;
     try {
-      data = await retryWithBackoff(
-        async () => {
-          const response = await fetch(`${supabaseUrl}/functions/v1/function-call`, {
+      data = await retryWithBackoff(async () => {
+        const response = await fetch(
+          `${supabaseUrl}/functions/v1/function-call`,
+          {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${supabaseServiceKey}`,
             },
             body: JSON.stringify(functionCallPayload),
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`HTTP ${response.status}: ${errorText}`);
           }
+        );
 
-          const data = await response.json();
-          
-          if (!data.success || !data.payload) {
-            throw new Error(`Function call failed: ${JSON.stringify(data)}`);
-          }
-          
-          return data;
-        },
-        `image categorization for ${imageUrl}`
-      );
-      
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+
+        const data = await response.json();
+
+        if (!data.success || !data.payload) {
+          throw new Error(`Function call failed: ${JSON.stringify(data)}`);
+        }
+
+        return data;
+      }, `image categorization for ${imageUrl}`);
+
       console.log(`Function-call response for ${imageUrl}:`, data);
     } catch (error) {
-      console.warn(`Image categorization failed after retries for ${imageUrl}, skipping`, {
-        error: (error as Error).message,
-      });
+      console.warn(
+        `Image categorization failed after retries for ${imageUrl}, skipping`,
+        {
+          error: (error as Error).message,
+        }
+      );
       return null;
     }
 
@@ -366,123 +542,38 @@ export async function categorizeImage(
 
       const answerJson = JSON.parse(jsonString.trim());
 
-      // Check if VIN was detected in the first analysis
+      // Use the analysis result directly without re-running for VIN verification
       let finalAnalysisResult = answerJson;
-      const vehicleDetails = extractAvailableVehicleData(answerJson, inspectionType);
+      const vehicleDetails = extractAvailableVehicleData(
+        answerJson,
+        inspectionType
+      );
       const vinDetected =
         vehicleDetails.Vin && vehicleDetails.Vin.trim() !== "";
 
-      // If VIN is detected, re-run the function call for verification
       if (vinDetected) {
         console.log(
-          `VIN detected (${vehicleDetails.Vin}), re-running analysis for verification...`
+          `VIN detected (${vehicleDetails.Vin}) from image analysis - using result directly without re-verification`
         );
-
-        try {
-          // Make a second function call for VIN verification with retry logic
-          const verificationData = await retryWithBackoff(
-            async () => {
-              const verificationResponse = await fetch(
-                `${supabaseUrl}/functions/v1/function-call`,
-                {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${supabaseServiceKey}`,
-                  },
-                  body: JSON.stringify({
-                    ...functionCallPayload,
-                    query:
-                      "Re-analyze this image with special focus on VIN detection accuracy.",
-                  }),
-                }
-              );
-
-              if (!verificationResponse.ok) {
-                const errorText = await verificationResponse.text();
-                throw new Error(`HTTP ${verificationResponse.status}: ${errorText}`);
-              }
-
-              const verificationData = await verificationResponse.json();
-              
-              if (!verificationData.success || !verificationData.payload) {
-                throw new Error(`VIN verification failed: ${JSON.stringify(verificationData)}`);
-              }
-              
-              return verificationData;
-            },
-            `VIN verification for ${imageUrl}`
-          );
-
-          console.log(
-            `VIN verification response for ${imageUrl}:`,
-            verificationData
-          );
-
-          // Parse the verification response
-          let verificationJsonString = verificationData.payload;
-
-          // Look for JSON block between ```json and ``` markers
-          const verificationJsonMatch = verificationJsonString.match(
-            /```json\s*\n([\s\S]*?)\n\s*```/
-          );
-          if (verificationJsonMatch) {
-            verificationJsonString = verificationJsonMatch[1];
-          } else {
-            // If no markdown code block, try to find JSON object directly
-            const verificationJsonObjectMatch =
-              verificationJsonString.match(/\{[\s\S]*\}/);
-            if (verificationJsonObjectMatch) {
-              verificationJsonString = verificationJsonObjectMatch[0];
-            }
-          }
-
-          try {
-            const verificationJson = JSON.parse(
-              verificationJsonString.trim()
-            );
-            console.log(
-              `Using verification analysis result for ${imageUrl}`
-            );
-            finalAnalysisResult = verificationJson;
-          } catch (verificationParseError) {
-            console.warn(
-              `Failed to parse verification response, using original analysis:`,
-              verificationParseError
-            );
-            // Keep using the original analysis result
-          }
-        } catch (verificationError) {
-          console.warn(
-            `VIN verification failed after retries, using original analysis:`,
-            verificationError
-          );
-          // Continue with original analysis
-        }
       }
 
       // Extract vehicle data from final analysis result and update inspection
-      // Skip updating vehicle_details for "detail" type inspections to preserve manually entered data
-      if (
-        inspectionId &&
-        finalAnalysisResult.vehicle
-        // inspectionType !== "detail"
-      ) {
-        const finalVehicleDetails =
-          extractAvailableVehicleData(finalAnalysisResult, inspectionType);
+      // VIN and Mileage protection is now handled within updateInspectionVehicleDetails()
+      if (inspectionId && finalAnalysisResult.vehicle) {
+        const finalVehicleDetails = extractAvailableVehicleData(
+          finalAnalysisResult,
+          inspectionType
+        );
         if (Object.keys(finalVehicleDetails).length > 0) {
           console.log(
             `Updating vehicle details for inspection type: ${inspectionType}`
           );
           await updateInspectionVehicleDetails(
             inspectionId,
-            finalVehicleDetails
+            finalVehicleDetails,
+            inspectionType
           );
         }
-      } else if (inspectionType === "detail") {
-        console.log(
-          `Skipping vehicle details update for "detail" type inspection ${inspectionId}`
-        );
       }
 
       // Create a copy of the analysis without vehicle data for fullAnalysis

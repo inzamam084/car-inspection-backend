@@ -23,7 +23,7 @@ async function retryWithBackoff<T>(
   config = RETRY_CONFIG
 ): Promise<T> {
   let lastError: Error;
-  
+
   for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
     try {
       if (attempt > 0) {
@@ -31,28 +31,31 @@ async function retryWithBackoff<T>(
           config.baseDelayMs * Math.pow(config.backoffMultiplier, attempt - 1),
           config.maxDelayMs
         );
-        
+
         ctx.info(`Retrying ${operationName}`, {
           attempt: attempt + 1,
           maxRetries: config.maxRetries + 1,
           delayMs: delay,
         });
-        
-        await new Promise(resolve => setTimeout(resolve, delay));
+
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
-      
+
       return await operation();
     } catch (error) {
       lastError = error as Error;
-      
+
       if (attempt === config.maxRetries) {
-        ctx.error(`${operationName} failed after ${config.maxRetries + 1} attempts`, {
-          error: lastError.message,
-          totalAttempts: attempt + 1,
-        });
+        ctx.error(
+          `${operationName} failed after ${config.maxRetries + 1} attempts`,
+          {
+            error: lastError.message,
+            totalAttempts: attempt + 1,
+          }
+        );
         throw lastError;
       }
-      
+
       ctx.warn(`${operationName} failed, will retry`, {
         attempt: attempt + 1,
         error: lastError.message,
@@ -63,7 +66,7 @@ async function retryWithBackoff<T>(
       });
     }
   }
-  
+
   throw lastError!;
 }
 
@@ -102,18 +105,43 @@ export async function processExtensionData(
       images_count: vehicleData.gallery_images.length,
     });
 
-    // Extract vehicle data from first image using image_data_extract function
+    // Step 1: Create inspection record first with basic vehicle data
+    ctx.debug("Creating inspection record with basic vehicle data");
+    const inspectionResult = await Database.createInspectionFromVehicleData(
+      vehicleData,
+      null, // No extracted data yet
+      ctx
+    );
+
+    if (!inspectionResult.success || !inspectionResult.inspectionId) {
+      ctx.error("Failed to create inspection", {
+        error: inspectionResult.error,
+      });
+      return {
+        success: false,
+        error: inspectionResult.error || "Failed to create inspection",
+      };
+    }
+
+    const inspectionId = inspectionResult.inspectionId;
+    ctx.setInspection(inspectionId);
+    ctx.info("Created inspection successfully", {
+      inspection_id: inspectionId,
+    });
+
+    // Step 2: Extract vehicle data from screenshot using the created inspection ID
     let extractedVehicleData: ImageDataExtractResponse | null = null;
     if (vehicleData.page_screenshot?.storageUrl) {
-      ctx.info("Extracting vehicle data from first image", {
-        image_url: vehicleData.gallery_images[0],
+      ctx.info("Extracting vehicle data from page screenshot", {
+        inspection_id: inspectionId,
+        screenshot_url: vehicleData.page_screenshot.storageUrl,
       });
 
       try {
         const functionCallPayload = {
           function_name: "image_data_extract",
           query: "Provide the results with the image url",
-          inspection_id: undefined, // Inspection hasn't been created yet
+          inspection_id: inspectionId, // Now we have a valid inspection ID
           user_id: ctx.userId,
           files: [
             {
@@ -133,7 +161,7 @@ export async function processExtensionData(
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
-                  Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+                  // Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
                 },
                 body: JSON.stringify(functionCallPayload),
               }
@@ -141,15 +169,29 @@ export async function processExtensionData(
 
             if (!response.ok) {
               const errorText = await response.text();
+
+              // Check if it's a Google service issue (502 Bad Gateway)
+              if (
+                response.status >= 500 ||
+                errorText.includes("502 Bad Gateway") ||
+                errorText.includes("PluginDaemonInnerError")
+              ) {
+                throw new Error(
+                  `Temporary service unavailable (${response.status}): Google Vision API may be experiencing issues`
+                );
+              }
+
               throw new Error(`HTTP ${response.status}: ${errorText}`);
             }
 
             const result = await response.json();
-            
+
             if (!result.success || !result.payload) {
-              throw new Error(`Function call failed: ${JSON.stringify(result)}`);
+              throw new Error(
+                `Function call failed: ${JSON.stringify(result)}`
+              );
             }
-            
+
             return result;
           },
           ctx,
@@ -173,57 +215,93 @@ export async function processExtensionData(
           }
 
           extractedVehicleData = JSON.parse(jsonString);
-          ctx.info(
-            "Extracted vehicle data from image",
-            extractedVehicleData
-          );
-          ctx.info("Successfully extracted vehicle data from image", {
+          ctx.info("Successfully extracted vehicle data from screenshot", {
+            inspection_id: inspectionId,
             has_vin: !!extractedVehicleData?.Vin,
             has_make: !!extractedVehicleData?.Make,
             has_model: !!extractedVehicleData?.Model,
             has_year: !!extractedVehicleData?.Year,
+            has_mileage: !!extractedVehicleData?.Mileage,
           });
+
+          // Step 3: Update the inspection with extracted vehicle data
+          if (extractedVehicleData) {
+            ctx.debug("Updating inspection with extracted vehicle data");
+            try {
+              await Database.updateInspectionStatusWithFields(
+                inspectionId,
+                "pending", // Keep status as pending during setup
+                {
+                  vehicle_details: extractedVehicleData,
+                  vin: extractedVehicleData.Vin || null,
+                  mileage: extractedVehicleData.Mileage || null,
+                },
+                ctx
+              );
+              ctx.info("Successfully updated inspection with extracted data", {
+                inspection_id: inspectionId,
+              });
+            } catch (updateError) {
+              ctx.warn(
+                "Failed to update inspection with extracted data, continuing",
+                {
+                  inspection_id: inspectionId,
+                  error: (updateError as Error).message,
+                }
+              );
+            }
+          }
         } catch (parseError) {
           ctx.error("Failed to parse extracted vehicle data", {
+            inspection_id: inspectionId,
             error: (parseError as Error).message,
             payload: result.payload,
           });
           // Continue with null extractedVehicleData - process will continue
         }
       } catch (error) {
-        ctx.warn("Image data extraction failed after retries, continuing with original vehicle data", {
-          error: (error as Error).message,
-        });
-        // Don't throw error - continue with null extractedVehicleData
-        // The process will continue using the original vehicleData
+        ctx.error(
+          "Screenshot data extraction failed after retries - failing inspection due to incomplete vehicle data",
+          {
+            inspection_id: inspectionId,
+            error: (error as Error).message,
+          }
+        );
+
+        // Mark inspection as failed due to screenshot analysis failure
+        await StatusManager.markAsFailed(
+          inspectionId,
+          `Screenshot analysis failed: ${(error as Error).message}`
+        );
+
+        return {
+          success: false,
+          error: `Screenshot analysis required for extension inspections failed: ${
+            (error as Error).message
+          }`,
+        };
       }
     } else {
-      ctx.info("No images available for vehicle data extraction");
+      ctx.info(
+        "No page screenshot available for vehicle data extraction - failing extension inspection",
+        {
+          inspection_id: inspectionId,
+        }
+      );
+
+      // // Mark inspection as failed due to missing screenshot
+      // await StatusManager.markAsFailed(
+      //   inspectionId,
+      //   "Screenshot analysis required for extension inspections but no screenshot available"
+      // );
+
+      // return {
+      //   success: false,
+      //   error: "Screenshot analysis required for extension inspections but no screenshot was provided",
+      // };
     }
 
-    // Create inspection record with extracted vehicle data
-    ctx.debug("Creating inspection record from vehicle data");
-    const inspectionResult = await Database.createInspectionFromVehicleData(
-      vehicleData,
-      extractedVehicleData,
-      ctx
-    );
-    if (!inspectionResult.success || !inspectionResult.inspectionId) {
-      ctx.error("Failed to create inspection", {
-        error: inspectionResult.error,
-      });
-      return {
-        success: false,
-        error: inspectionResult.error || "Failed to create inspection",
-      };
-    }
-
-    const inspectionId = inspectionResult.inspectionId;
-    ctx.setInspection(inspectionId);
-    ctx.info("Created inspection successfully", {
-      inspection_id: inspectionId,
-    });
-
+    // Step 4: Update status to processing and start image processing
     // Update status to processing using centralized manager
     ctx.debug("Updating inspection status to processing");
     await StatusManager.updateStatus(inspectionId, "processing");
@@ -291,6 +369,22 @@ export async function processExtensionData(
     ctx.error("Error processing extension data", {
       error: (error as Error).message,
     });
+
+    // If we have an inspection ID, mark it as failed
+    if (ctx.inspectionId) {
+      try {
+        await StatusManager.markAsFailed(
+          ctx.inspectionId,
+          `Extension processing failed: ${(error as Error).message}`
+        );
+      } catch (statusError) {
+        ctx.error("Failed to update inspection status to failed", {
+          inspection_id: ctx.inspectionId,
+          error: (statusError as Error).message,
+        });
+      }
+    }
+
     return {
       success: false,
       error: (error as Error).message,

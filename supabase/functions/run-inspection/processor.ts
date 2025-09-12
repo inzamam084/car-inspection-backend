@@ -45,10 +45,6 @@ export async function runAnalysisInBackground(
       inspection_type: inspectionData.type,
     });
 
-    // Update status to analyzing
-    // ctx.debug("Updating inspection status to analyzing");
-    // await Database.updateInspectionStatus(inspectionId, "analyzing");
-
     // Categorize images using Dify API (only for non-URL inspections)
     if (
       inspectionData.type !== "url" &&

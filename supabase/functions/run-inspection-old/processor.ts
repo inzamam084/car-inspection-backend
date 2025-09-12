@@ -29,15 +29,12 @@ export async function runAnalysisInBackground(
 
     // Extract data from the batched result
     var photos = inspectionData.photos || [];
-    
+
     if (photos.length === 0) {
       console.error("No photos found for inspection");
       await dbService.updateInspectionStatus(inspectionId, "failed");
       return;
     }
-
-    // Update status to analyzing
-    await dbService.updateInspectionStatus(inspectionId, "analyzing");
 
     // Categorize images using Dify API (only for non-URL inspections)
     if (inspectionData.type !== "url" && photos.length > 0) {
