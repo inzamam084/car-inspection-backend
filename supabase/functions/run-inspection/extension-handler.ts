@@ -23,7 +23,7 @@ async function retryWithBackoff<T>(
   config = RETRY_CONFIG
 ): Promise<T> {
   let lastError: Error;
-  
+
   for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
     try {
       if (attempt > 0) {
@@ -31,28 +31,31 @@ async function retryWithBackoff<T>(
           config.baseDelayMs * Math.pow(config.backoffMultiplier, attempt - 1),
           config.maxDelayMs
         );
-        
+
         ctx.info(`Retrying ${operationName}`, {
           attempt: attempt + 1,
           maxRetries: config.maxRetries + 1,
           delayMs: delay,
         });
-        
-        await new Promise(resolve => setTimeout(resolve, delay));
+
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
-      
+
       return await operation();
     } catch (error) {
       lastError = error as Error;
-      
+
       if (attempt === config.maxRetries) {
-        ctx.error(`${operationName} failed after ${config.maxRetries + 1} attempts`, {
-          error: lastError.message,
-          totalAttempts: attempt + 1,
-        });
+        ctx.error(
+          `${operationName} failed after ${config.maxRetries + 1} attempts`,
+          {
+            error: lastError.message,
+            totalAttempts: attempt + 1,
+          }
+        );
         throw lastError;
       }
-      
+
       ctx.warn(`${operationName} failed, will retry`, {
         attempt: attempt + 1,
         error: lastError.message,
@@ -63,7 +66,7 @@ async function retryWithBackoff<T>(
       });
     }
   }
-  
+
   throw lastError!;
 }
 
@@ -147,7 +150,9 @@ export async function processExtensionData(
             const result = await response.json();
 
             if (!result.success || !result.payload) {
-              throw new Error(`Function call failed: ${JSON.stringify(result)}`);
+              throw new Error(
+                `Function call failed: ${JSON.stringify(result)}`
+              );
             }
 
             return result;
@@ -173,10 +178,7 @@ export async function processExtensionData(
           }
 
           extractedVehicleData = JSON.parse(jsonString);
-          ctx.info(
-            "Extracted vehicle data from image",
-            extractedVehicleData
-          );
+          ctx.info("Extracted vehicle data from image", extractedVehicleData);
           ctx.info("Successfully extracted vehicle data from image", {
             has_vin: !!extractedVehicleData?.Vin,
             has_make: !!extractedVehicleData?.Make,
@@ -191,9 +193,12 @@ export async function processExtensionData(
           // Continue with null extractedVehicleData - process will continue
         }
       } catch (error) {
-        ctx.warn("Image data extraction failed after retries, continuing with original vehicle data", {
-          error: (error as Error).message,
-        });
+        ctx.warn(
+          "Image data extraction failed after retries, continuing with original vehicle data",
+          {
+            error: (error as Error).message,
+          }
+        );
         // Don't throw error - continue with null extractedVehicleData
         // The process will continue using the original vehicleData
       }
