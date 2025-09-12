@@ -310,17 +310,74 @@ Deno.serve(async (req) => {
       files_count: files ? files.length : 0,
     });
 
-    // Prepare the request body for Dify API
+    // Remove any fields that shouldn't be sent to Dify API
+    // The 'answer' field should never be in the request - it's only in the response
+    const sanitizedInputs = { ...inputs };
+    delete sanitizedInputs.answer; // Remove if accidentally included
+    delete sanitizedInputs.message_id; // Remove if accidentally included
+    delete sanitizedInputs.event; // Remove if accidentally included
+    delete sanitizedInputs.mode; // Remove if accidentally included
+    delete sanitizedInputs.created_at; // Remove if accidentally included
+    delete sanitizedInputs.metadata; // Remove if accidentally included
+    delete sanitizedInputs.task_id; // Remove if accidentally included
+    delete sanitizedInputs.conversation_id; // Remove if accidentally included
+
+    logDebug(requestId, "Sanitized inputs for Dify API", {
+      function_name: functionName,
+      original_keys: Object.keys(inputs),
+      sanitized_keys: Object.keys(sanitizedInputs),
+      removed_keys: Object.keys(inputs).filter(key => !Object.keys(sanitizedInputs).includes(key)),
+    });
+
+    // Prepare the request body for Dify API according to official specification
     const difyRequestBody: any = {
-      inputs: inputs,
-      user: "abc-123",
+      inputs: sanitizedInputs,
+      user: "abc-123", // User identifier as required by Dify API
       response_mode,
     };
 
-    // Add files parameter at root level if present
+    // Validate and add files parameter according to Dify API spec
     if (files && files.length > 0) {
-      difyRequestBody.files = files;
+      // Validate file format according to Dify documentation
+      const validatedFiles = files.map((file: any, index: number) => {
+        if (!file.type || !file.transfer_method || !file.url) {
+          logWarning(requestId, `Invalid file format at index ${index}`, {
+            function_name: functionName,
+            file_keys: Object.keys(file),
+            expected_keys: ['type', 'transfer_method', 'url'],
+          });
+        }
+        return file;
+      });
+      
+      difyRequestBody.files = validatedFiles;
+      
+      logDebug(requestId, "Files added to Dify request", {
+        function_name: functionName,
+        files_count: validatedFiles.length,
+        file_types: validatedFiles.map((f: any) => f.type),
+        transfer_methods: validatedFiles.map((f: any) => f.transfer_method),
+      });
     }
+
+    // Validate inputs according to Dify API requirements
+    if (!inputs || Object.keys(inputs).length === 0) {
+      logWarning(requestId, "No inputs provided - Dify API requires at least one input", {
+        function_name: functionName,
+        inputs: inputs,
+      });
+    }
+
+    // Log the complete request body for debugging
+    logDebug(requestId, "Complete Dify API request body", {
+      function_name: functionName,
+      request_body: {
+        inputs: inputs,
+        user: difyRequestBody.user,
+        response_mode: difyRequestBody.response_mode,
+        files_count: difyRequestBody.files?.length || 0,
+      },
+    });
 
     const response = await fetch(difyUrl, {
       method: "POST",

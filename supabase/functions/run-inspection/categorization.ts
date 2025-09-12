@@ -77,23 +77,25 @@ const dbService = createDatabaseService();
  * Helper function to check if a value is meaningful (not null, undefined, empty, or placeholder values)
  */
 function isMeaningfulValue(value: any): boolean {
-  return value && 
-         value !== "" && 
-         value !== "N/A" && 
-         value !== "n/a" && 
-         value !== "None" && 
-         value !== "none" &&
-         value !== "Not Available" &&
-         value !== "not available" &&
-         value !== "Unknown" &&
-         value !== "unknown";
+  return (
+    value &&
+    value !== "" &&
+    value !== "N/A" &&
+    value !== "n/a" &&
+    value !== "None" &&
+    value !== "none" &&
+    value !== "Not Available" &&
+    value !== "not available" &&
+    value !== "Unknown" &&
+    value !== "unknown"
+  );
 }
 
 /**
  * Helper function to check if a VIN is partially redacted (contains asterisks)
  */
 function isPartialVin(vin: string): boolean {
-  return typeof vin === 'string' && vin.includes('*');
+  return typeof vin === "string" && vin.includes("*");
 }
 
 /**
@@ -102,21 +104,22 @@ function isPartialVin(vin: string): boolean {
  */
 function vinMatches(partialVin: string, completeVin: string): boolean {
   if (!partialVin || !completeVin) return false;
-  if (typeof partialVin !== 'string' || typeof completeVin !== 'string') return false;
-  
+  if (typeof partialVin !== "string" || typeof completeVin !== "string")
+    return false;
+
   // Ensure both VINs are the same length (standard VIN is 17 characters)
   if (partialVin.length !== completeVin.length) return false;
-  
+
   // Compare character by character, ignoring asterisks in partial VIN
   for (let i = 0; i < partialVin.length; i++) {
-    if (partialVin[i] === '*') {
+    if (partialVin[i] === "*") {
       continue; // Skip asterisks in partial VIN
     }
     if (partialVin[i].toUpperCase() !== completeVin[i].toUpperCase()) {
       return false; // Non-asterisk characters must match
     }
   }
-  
+
   return true;
 }
 
@@ -124,18 +127,18 @@ function vinMatches(partialVin: string, completeVin: string): boolean {
  * Helper function to check if a complete VIN should replace a partial VIN
  * Returns true if:
  * 1. Existing VIN is partial (contains asterisks) AND
- * 2. New VIN is complete (no asterisks) AND  
+ * 2. New VIN is complete (no asterisks) AND
  * 3. The non-asterisk portions match
  */
 function shouldReplacePartialVin(existingVin: string, newVin: string): boolean {
   if (!existingVin || !newVin) return false;
-  
+
   // Only replace if existing VIN is partial and new VIN is complete
   const existingIsPartial = isPartialVin(existingVin);
   const newIsComplete = !isPartialVin(newVin) && isMeaningfulValue(newVin);
-  
+
   if (!existingIsPartial || !newIsComplete) return false;
-  
+
   // Check if the non-asterisk portions match
   return vinMatches(existingVin, newVin);
 }
@@ -230,7 +233,9 @@ function extractAvailableVehicleData(
       if (dbKey) {
         // Skip if value is "N/A" or other non-meaningful values
         if (!isMeaningfulValue(property.value)) {
-          console.log(`Skipping ${dbKey} with non-meaningful value: ${property.value}`);
+          console.log(
+            `Skipping ${dbKey} with non-meaningful value: ${property.value}`
+          );
           return;
         }
 
@@ -306,10 +311,13 @@ async function updateInspectionVehicleDetails(
       // Check if VIN already exists in database (meaningful value)
       const existingVinValue = existingVin || existingVehicleDetails.Vin;
       const newVinValue = filteredVehicleDetails.Vin;
-      
+
       // Special case: Allow replacement if existing VIN is partial and new VIN completes it
-      const shouldReplaceVin = shouldReplacePartialVin(existingVinValue, newVinValue);
-      
+      const shouldReplaceVin = shouldReplacePartialVin(
+        existingVinValue,
+        newVinValue
+      );
+
       const hasMeaningfulVin = isMeaningfulValue(existingVinValue);
       if (hasMeaningfulVin && !shouldReplaceVin) {
         const sourceDescription =
@@ -328,7 +336,9 @@ async function updateInspectionVehicleDetails(
       }
 
       // Check if Mileage already exists in database (meaningful value)
-      const hasMeaningfulMileage = isMeaningfulValue(existingMileage) || isMeaningfulValue(existingVehicleDetails.Mileage);
+      const hasMeaningfulMileage =
+        isMeaningfulValue(existingMileage) ||
+        isMeaningfulValue(existingVehicleDetails.Mileage);
       if (hasMeaningfulMileage) {
         const sourceDescription =
           currentInspectionType === "extension"
@@ -344,16 +354,16 @@ async function updateInspectionVehicleDetails(
       if (hasMeaningfulVin) {
         const protectedFields = [
           "Make",
-          "Year", 
+          "Year",
           "Model",
           "Engine",
           "Body Style",
           "Drivetrain",
           "Title Status",
-          "Transmission"
+          "Transmission",
         ];
-        
-        protectedFields.forEach(field => {
+
+        protectedFields.forEach((field) => {
           if (filteredVehicleDetails[field] !== undefined) {
             console.log(
               `VIN exists from skipping ${field} update from gallery image analysis`
