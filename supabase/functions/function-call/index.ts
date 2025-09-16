@@ -336,7 +336,18 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
         Authorization: `Bearer ${mappingData.api_key}`,
       },
-      body: JSON.stringify(difyRequestBody),
+      body: JSON.stringify({
+        inputs: { query: "Provide the results with the image url" },
+        response_mode: "blocking",
+        user: "abc-123",
+        files: [
+          {
+            type: "image",
+            transfer_method: "remote_url",
+            url: "https://hhymqgsreoqpoqdpefhe.supabase.co/storage/v1/object/public/inspection-photos/0270b5ed-31e0-4a38-9fcd-05345118b6f5/dashboard_1749787699387_8e4zq26jc6s.jpg",
+          },
+        ],
+      }),
     });
 
     if (!response.ok) {
