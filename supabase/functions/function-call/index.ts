@@ -307,30 +307,27 @@ Deno.serve(async (req) => {
     });
 
     // Prepare the request body for Dify API based on function type
-    let difyInputs;
-    if (mappingData.type === "completion") {
-      // For completion: only include query in inputs
-      // difyInputs = { query: inputs.query };
-      difyInputs = {}
-    } else {
-      // For workflow: include all inputs including inspection_id
-      difyInputs = { ...inputs };
-      if (inspection_id) {
-        difyInputs.inspection_id = inspection_id;
-      }
-    }
-
     const difyRequestBody: any = {
-      inputs: difyInputs,
       user: "abc-123",
       response_mode,
     };
+
+    if (mappingData.type === "completion") {
+      // For completion: include all inputs in the inputs object (same as workflow)
+      difyRequestBody.inputs = { ...inputs };
+    } else {
+      // For workflow: include all inputs in the inputs object
+      const difyInputs = { ...inputs };
+      if (inspection_id) {
+        difyInputs.inspection_id = inspection_id;
+      }
+      difyRequestBody.inputs = difyInputs;
+    }
 
     // Add files parameter at root level if present
     if (files && files.length > 0) {
       difyRequestBody.files = files;
     }
-
     console.log("DIFY REQUEST BODY : ", difyRequestBody);
 
     const response = await fetch(difyUrl, {
