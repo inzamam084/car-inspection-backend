@@ -310,7 +310,8 @@ Deno.serve(async (req) => {
     let difyInputs;
     if (mappingData.type === "completion") {
       // For completion: only include query in inputs
-      difyInputs = { query: inputs.query };
+      // difyInputs = { query: inputs.query };
+      difyInputs = {}
     } else {
       // For workflow: include all inputs including inspection_id
       difyInputs = { ...inputs };
