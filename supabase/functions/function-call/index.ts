@@ -376,6 +376,7 @@ Deno.serve(async (req) => {
     }
 
     console.log("DIFY REQUEST BODY:", JSON.stringify(finalRequestBody, null, 2));
+    console.log("API Key Present:", mappingData.api_key);
 
     const response = await fetch(difyUrl, {
       method: "POST",
