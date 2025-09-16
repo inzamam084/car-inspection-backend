@@ -329,30 +329,27 @@ Deno.serve(async (req) => {
       difyRequestBody.files = files;
     }
 
-    // Construct the final request body based on your working example
+    // Construct the final request body to match your working example exactly
     let finalRequestBody: any;
     
     if (mappingData.type === "completion") {
-      // For completion: match the working example structure
+      // For completion: match the working example structure exactly
       finalRequestBody = {
         inputs: {
-          query: rest.query || "Provide the results with the image url",
-          ...Object.fromEntries(
-            Object.entries(rest)
-              .filter(([key]) => key !== 'query') // Avoid duplicating query
-              .map(([key, value]) => [key, String(value || "")])
-          )
+          query: rest.query || "Provide the results with the image url"
         },
         response_mode: response_mode || "blocking",
-        user: userId || "abc-123",
-        ...(files && files.length > 0 && {
-          files: files.map((file: any) => ({
-            type: file.type || "image",
-            transfer_method: file.transfer_method || "remote_url",
-            url: file.url || file || "",
-          }))
-        })
+        user: userId || "abc-123"
       };
+      
+      // Add files at root level if present (matching working example)
+      if (files && files.length > 0) {
+        finalRequestBody.files = files.map((file: any) => ({
+          type: file.type || "image",
+          transfer_method: file.transfer_method || "remote_url",
+          url: file.url || file || ""
+        }));
+      }
     } else {
       // For workflow: keep existing structure but clean it up
       finalRequestBody = {
@@ -384,7 +381,7 @@ Deno.serve(async (req) => {
       method: "POST",
       headers: {
         Accept: "*/*",
-        "User-Agent": "Supabase Edge Function",
+        "User-Agent": "Thunder Client (https://www.thunderclient.com)",
         "Content-Type": "application/json",
         Authorization: `Bearer ${mappingData.api_key}`,
       },
