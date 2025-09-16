@@ -339,20 +339,29 @@ Deno.serve(async (req) => {
       body: JSON.stringify(
         mappingData.type === "completion"
           ? {
-              inputs: { 
+              inputs: {
                 query: rest.query || "Provide the results with the image url",
               },
               response_mode: response_mode,
               user: userId || "abc-123",
-              files: files || [],
+              files: [
+                {
+                  type: "image",
+                  transfer_method: "remote_url",
+                  url: files && files.length > 0 ? files[0].url : null,
+                },
+              ],
             }
           : {
               inputs: {
                 images: files || [],
-                inspection_query: rest.query || rest.inspection_query || "Analyze the car inspection images",
+                inspection_query:
+                  rest.query ||
+                  rest.inspection_query ||
+                  "Analyze the car inspection images",
                 user_id: userId || "abc-123",
                 inspection_id: inspection_id,
-                ...rest
+                ...rest,
               },
               response_mode: response_mode,
               user: userId || "abc-123",
