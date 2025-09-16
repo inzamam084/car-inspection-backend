@@ -340,31 +340,39 @@ Deno.serve(async (req) => {
         mappingData.type === "completion"
           ? {
               inputs: {
-                query: rest.query || "Provide the results with the image url",
+                query: String(rest.query || "Provide the results with the image url"),
+                // ...Object.fromEntries(
+                //   Object.entries(rest).map(([key, value]) => [key, String(value || "")])
+                // )
               },
-              response_mode: response_mode,
-              user: userId || "abc-123",
-              files: [
-                {
-                  type: "image",
-                  transfer_method: "remote_url",
-                  url: files && files.length > 0 ? files[0].url : null,
-                },
-              ],
+              response_mode: String(response_mode || "blocking"),
+              user: String(userId || "abc-123"),
+              files: files && files.length > 0 ? files.map(file => ({
+                type: String(file.type || "image"),
+                transfer_method: String(file.transfer_method || "remote_url"),
+                url: String(file.url || file || "")
+              })) : [],
             }
           : {
               inputs: {
-                images: files || [],
-                inspection_query:
+                images: files && files.length > 0 ? files.map(file => ({
+                  type: String(file.type || "image"),
+                  transfer_method: String(file.transfer_method || "remote_url"),
+                  url: String(file.url || file || "")
+                })) : [],
+                inspection_query: String(
                   rest.query ||
                   rest.inspection_query ||
-                  "Analyze the car inspection images",
-                user_id: userId || "abc-123",
-                inspection_id: inspection_id,
-                ...rest,
+                  "Analyze the car inspection images"
+                ),
+                user_id: String(userId || "abc-123"),
+                inspection_id: String(inspection_id || ""),
+                ...Object.fromEntries(
+                  Object.entries(rest).map(([key, value]) => [key, String(value || "")])
+                )
               },
-              response_mode: response_mode,
-              user: userId || "abc-123",
+              response_mode: String(response_mode || "blocking"),
+              user: String(userId || "abc-123"),
             }
       ),
     });
