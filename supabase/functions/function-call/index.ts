@@ -328,53 +328,67 @@ Deno.serve(async (req) => {
     if (files && files.length > 0) {
       difyRequestBody.files = files;
     }
-    console.log("DIFY REQUEST BODY : ", difyRequestBody);
+
+    // Construct the final request body based on your working example
+    let finalRequestBody: any;
+    
+    if (mappingData.type === "completion") {
+      // For completion: match the working example structure
+      finalRequestBody = {
+        inputs: {
+          query: rest.query || "Provide the results with the image url",
+          ...Object.fromEntries(
+            Object.entries(rest)
+              .filter(([key]) => key !== 'query') // Avoid duplicating query
+              .map(([key, value]) => [key, String(value || "")])
+          )
+        },
+        response_mode: response_mode || "blocking",
+        user: userId || "abc-123",
+        ...(files && files.length > 0 && {
+          files: files.map((file: any) => ({
+            type: file.type || "image",
+            transfer_method: file.transfer_method || "remote_url",
+            url: file.url || file || "",
+          }))
+        })
+      };
+    } else {
+      // For workflow: keep existing structure but clean it up
+      finalRequestBody = {
+        inputs: {
+          ...(files && files.length > 0 && {
+            images: files.map((file: any) => ({
+              type: file.type || "image",
+              transfer_method: file.transfer_method || "remote_url",
+              url: file.url || file || "",
+            }))
+          }),
+          inspection_query: rest.query || rest.inspection_query || "Analyze the car inspection images",
+          user_id: userId || "abc-123",
+          inspection_id: inspection_id || "",
+          ...Object.fromEntries(
+            Object.entries(rest)
+              .filter(([key]) => !['query', 'inspection_query'].includes(key))
+              .map(([key, value]) => [key, String(value || "")])
+          ),
+        },
+        response_mode: response_mode || "blocking",
+        user: userId || "abc-123",
+      };
+    }
+
+    console.log("DIFY REQUEST BODY:", JSON.stringify(finalRequestBody, null, 2));
 
     const response = await fetch(difyUrl, {
       method: "POST",
       headers: {
+        Accept: "*/*",
+        "User-Agent": "Supabase Edge Function",
         "Content-Type": "application/json",
         Authorization: `Bearer ${mappingData.api_key}`,
       },
-      body: JSON.stringify(
-        mappingData.type === "completion"
-          ? {
-              inputs: {
-                query: String(rest.query || "Provide the results with the image url"),
-                // ...Object.fromEntries(
-                //   Object.entries(rest).map(([key, value]) => [key, String(value || "")])
-                // )
-              },
-              response_mode: String(response_mode || "blocking"),
-              user: String(userId || "abc-123"),
-              files: files && files.length > 0 ? files.map(file => ({
-                type: String(file.type || "image"),
-                transfer_method: String(file.transfer_method || "remote_url"),
-                url: String(file.url || file || "")
-              })) : [],
-            }
-          : {
-              inputs: {
-                images: files && files.length > 0 ? files.map(file => ({
-                  type: String(file.type || "image"),
-                  transfer_method: String(file.transfer_method || "remote_url"),
-                  url: String(file.url || file || "")
-                })) : [],
-                inspection_query: String(
-                  rest.query ||
-                  rest.inspection_query ||
-                  "Analyze the car inspection images"
-                ),
-                user_id: String(userId || "abc-123"),
-                inspection_id: String(inspection_id || ""),
-                ...Object.fromEntries(
-                  Object.entries(rest).map(([key, value]) => [key, String(value || "")])
-                )
-              },
-              response_mode: String(response_mode || "blocking"),
-              user: String(userId || "abc-123"),
-            }
-      ),
+      body: JSON.stringify(finalRequestBody),
     });
 
     if (!response.ok) {
