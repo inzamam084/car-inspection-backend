@@ -416,7 +416,7 @@ Deno.serve(async (req) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${mappingData.api_key}`,
+          "Authorization": `Bearer ${mappingData.api_key}`,
         },
         body: JSON.stringify({
           inputs: {
