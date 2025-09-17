@@ -309,25 +309,25 @@ Deno.serve(async (req) => {
 
     // Prepare the request body according to Dify API documentation
     let finalRequestBody: any;
-    
+
     if (mappingData.type === "completion") {
       // For completion API: follow the exact structure from Dify docs
       finalRequestBody = {
         inputs: {},
         response_mode: response_mode || "blocking",
-        user: userId || "abc-123"
+        user: userId || "abc-123",
       };
 
       // Add all inputs to the inputs object
       // For completion, the main input should be in 'query' field if it's a text input
-        finalRequestBody.inputs.input = String(rest.query);
-    
+      finalRequestBody.inputs.input = String(rest.query);
+
       // Add files at root level if present (according to Dify docs)
       if (files && files.length > 0) {
         finalRequestBody.files = files.map((file: any) => {
           // Ensure proper file format according to Dify docs
           const fileObj: any = {
-            type: file.type || "image"
+            type: file.type || "image",
           };
 
           if (file.transfer_method === "local_file" && file.upload_file_id) {
@@ -346,11 +346,11 @@ Deno.serve(async (req) => {
       finalRequestBody = {
         inputs: {},
         response_mode: response_mode || "blocking",
-        user: userId || "abc-123"
+        user: userId || "abc-123",
       };
 
       // Add all inputs to the inputs object
-      Object.keys(rest).forEach(key => {
+      Object.keys(rest).forEach((key) => {
         if (rest[key] !== undefined && rest[key] !== null) {
           finalRequestBody.inputs[key] = String(rest[key]);
         }
@@ -371,7 +371,7 @@ Deno.serve(async (req) => {
       if (files && files.length > 0) {
         finalRequestBody.inputs.images = files.map((file: any) => {
           const fileObj: any = {
-            type: file.type || "image"
+            type: file.type || "image",
           };
 
           if (file.transfer_method === "local_file" && file.upload_file_id) {
@@ -395,7 +395,7 @@ Deno.serve(async (req) => {
       inputs_keys: Object.keys(finalRequestBody.inputs || {}),
       has_files: !!(finalRequestBody.files || finalRequestBody.inputs?.images),
       response_mode: finalRequestBody.response_mode,
-      user: finalRequestBody.user
+      user: finalRequestBody.user,
     });
 
     // Make the request to Dify API with proper headers
@@ -404,25 +404,49 @@ Deno.serve(async (req) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${mappingData.api_key ? '[PRESENT]' : '[MISSING]'}`
+        Authorization: `Bearer ${
+          mappingData.api_key ? "[PRESENT]" : "[MISSING]"
+        }`,
       },
-      body_preview: JSON.stringify(finalRequestBody).substring(0, 500)
+      body_preview: JSON.stringify(finalRequestBody).substring(0, 500),
     });
-
-    const response = await fetch(difyUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${mappingData.api_key}`,
-        "Accept": "application/json"
-      },
-      body: JSON.stringify(finalRequestBody),
-    });
-
+    let response: Response;
+    if (mappingData.type === "completion") {
+      response = await fetch(difyUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${mappingData.api_key}`,
+        },
+        body: JSON.stringify({
+          inputs: {
+            query: "Provide the results with the image url",
+          },
+          response_mode: "blocking",
+          user: "abc-123",
+          files: [
+            {
+              type: "image",
+              transfer_method: "remote_url",
+              url: files && files.length > 0 ? String(files[0].url) : "",
+            },
+          ],
+        }),
+      });
+    } else {
+      response = await fetch(difyUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${mappingData.api_key}`,
+        },
+        body: JSON.stringify(finalRequestBody),
+      });
+    }
     if (!response.ok) {
       const errorText = await response.text();
       errorMessage = `Dify API request failed: ${response.status} - ${errorText}`;
-      
+
       // Try to parse error as JSON for better error details
       let parsedError: any = null;
       try {
@@ -438,7 +462,7 @@ Deno.serve(async (req) => {
         errorText: truncateIfNeeded(errorText),
         parsedError: parsedError,
         requestBody: truncateIfNeeded(JSON.stringify(finalRequestBody)),
-        headers: Object.fromEntries(response.headers.entries())
+        headers: Object.fromEntries(response.headers.entries()),
       });
 
       // Log error to database
@@ -464,7 +488,7 @@ Deno.serve(async (req) => {
           statusText: response.statusText,
           details: parsedError || errorText,
           dify_error_code: parsedError?.code,
-          dify_error_message: parsedError?.message
+          dify_error_message: parsedError?.message,
         }),
         {
           status: response.status,
