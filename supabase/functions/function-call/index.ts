@@ -420,7 +420,7 @@ Deno.serve(async (req) => {
         },
         body: JSON.stringify({
           inputs: {
-            query: "Provide the results with the image url",
+            input: "Provide the results with the image url",
           },
           response_mode: "blocking",
           user: "abc-123",
