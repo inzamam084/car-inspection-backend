@@ -116,7 +116,8 @@ async function compressImageIfNeeded(
           transform: {
             width: 1280,
             quality: 70,
-            format: "webp",
+            // Remove format parameter to allow automatic optimization (WebP detection)
+            // Supabase will automatically serve WebP to compatible browsers
           },
         });
 
