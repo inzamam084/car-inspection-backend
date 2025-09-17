@@ -99,19 +99,24 @@ async function compressImageIfNeeded(
     });
 
     // Extract storage path from Supabase URL
-    const storagePath = extractStoragePathFromUrl(imageUrl);
-    if (!storagePath) {
+    const storageInfo = extractStoragePathFromUrl(imageUrl);
+    if (!storageInfo) {
       ctx.warn("Could not extract storage path from URL, using original", {
         url: imageUrl,
       });
       return imageUrl;
     }
 
+    ctx.debug("Extracted storage info", {
+      bucket: storageInfo.bucket,
+      path: storageInfo.path,
+    });
+
     // Create signed URL with transform to compress
     const { data: signedUrlData, error: signedUrlError } =
       await supabase.storage
-        .from("inspection-photos") // Assuming this is the bucket
-        .createSignedUrl(storagePath, 300, {
+        .from(storageInfo.bucket) // Use the extracted bucket name
+        .createSignedUrl(storageInfo.path, 300, {
           // 5 minutes expiry
           transform: {
             width: 1280,
@@ -146,16 +151,19 @@ async function compressImageIfNeeded(
 /**
  * Extract storage path from Supabase storage URL
  * Example: https://mdwuqrghdiigjktfhmuc.supabase.co/storage/v1/object/public/inspection-photos/screenshot-1758033756196-1758033758063.png
- * Returns: inspection-photos/screenshot-1758033756196-1758033758063.png
+ * Returns: { bucket: "inspection-photos", path: "screenshot-1758033756196-1758033758063.png" }
  */
-function extractStoragePathFromUrl(url: string): string | null {
+function extractStoragePathFromUrl(url: string): { bucket: string; path: string } | null {
   try {
     // Pattern for Supabase storage URLs
-    const storageUrlPattern = /\/storage\/v1\/object\/public\/(.+)$/;
+    const storageUrlPattern = /\/storage\/v1\/object\/public\/([^\/]+)\/(.+)$/;
     const match = url.match(storageUrlPattern);
 
-    if (match && match[1]) {
-      return match[1]; // This includes bucket/path
+    if (match && match[1] && match[2]) {
+      return {
+        bucket: match[1], // bucket name
+        path: match[2]    // file path within bucket
+      };
     }
 
     return null;
