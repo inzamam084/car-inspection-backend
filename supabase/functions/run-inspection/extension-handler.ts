@@ -81,23 +81,23 @@ async function compressImageIfNeeded(
 ): Promise<string> {
   try {
     // First check if we need to compress by getting file size
-    const headResponse = await fetch(imageUrl, { method: 'HEAD' });
-    const contentLength = headResponse.headers.get('content-length');
+    const headResponse = await fetch(imageUrl, { method: "HEAD" });
+    const contentLength = headResponse.headers.get("content-length");
     const fileSize = contentLength ? parseInt(contentLength) : 0;
-    
+
     const maxSizeBytes = 3 * 1024 * 1024; // 3MB
-    
+
     if (fileSize <= maxSizeBytes) {
       ctx.info("Image size is acceptable, no compression needed", {
-        file_size_mb: Math.round(fileSize / 1024 / 1024 * 100) / 100,
+        file_size_mb: Math.round((fileSize / 1024 / 1024) * 100) / 100,
       });
       return imageUrl; // Return original URL if under 3MB
     }
-    
+
     ctx.info("Image size exceeds 3MB, compressing...", {
-      original_size_mb: Math.round(fileSize / 1024 / 1024 * 100) / 100,
+      original_size_mb: Math.round((fileSize / 1024 / 1024) * 100) / 100,
     });
-    
+
     // Extract storage path from Supabase URL
     const storagePath = extractStoragePathFromUrl(imageUrl);
     if (!storagePath) {
@@ -106,17 +106,19 @@ async function compressImageIfNeeded(
       });
       return imageUrl;
     }
-    
+
     // Create signed URL with transform to compress
-    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-      .from('inspection-photos') // Assuming this is the bucket
-      .createSignedUrl(storagePath, 300, { // 5 minutes expiry
-        transform: {
-          width: 1280,
-          quality: 70,
-          format: 'webp'
-        }
-      });
+    const { data: signedUrlData, error: signedUrlError } =
+      await supabase.storage
+        .from("inspection-photos") // Assuming this is the bucket
+        .createSignedUrl(storagePath, 300, {
+          // 5 minutes expiry
+          transform: {
+            width: 1280,
+            quality: 70,
+            format: "webp",
+          },
+        });
 
     if (signedUrlError) {
       ctx.warn("Failed to create compressed URL, using original", {
@@ -124,12 +126,12 @@ async function compressImageIfNeeded(
       });
       return imageUrl;
     }
-    
+
     ctx.info("Successfully created compressed image URL", {
       original_url: imageUrl,
       compressed_url: signedUrlData.signedUrl,
     });
-    
+
     return signedUrlData.signedUrl;
   } catch (error) {
     ctx.warn("Error during compression attempt, using original URL", {
@@ -150,11 +152,11 @@ function extractStoragePathFromUrl(url: string): string | null {
     // Pattern for Supabase storage URLs
     const storageUrlPattern = /\/storage\/v1\/object\/public\/(.+)$/;
     const match = url.match(storageUrlPattern);
-    
+
     if (match && match[1]) {
       return match[1]; // This includes bucket/path
     }
-    
+
     return null;
   } catch (error) {
     console.warn("Failed to extract storage path from URL:", error);
@@ -358,10 +360,13 @@ export async function processExtensionData(
           // Continue with null extractedVehicleData - process will continue
         }
       } catch (error) {
-        ctx.info("Screenshot data extraction failed after retries - continuing without extracted data", {
-          inspection_id: inspectionId,
-          error: (error as Error).message,
-        });
+        ctx.info(
+          "Screenshot data extraction failed after retries - continuing without extracted data",
+          {
+            inspection_id: inspectionId,
+            error: (error as Error).message,
+          }
+        );
 
         // Mark inspection as failed due to screenshot analysis failure
         await StatusManager.markAsFailed(
