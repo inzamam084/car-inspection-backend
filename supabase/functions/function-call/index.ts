@@ -320,22 +320,8 @@ Deno.serve(async (req) => {
 
       // Add all inputs to the inputs object
       // For completion, the main input should be in 'query' field if it's a text input
-      if (rest.query) {
-        finalRequestBody.inputs.query = rest.query;
-      } else {
-        // If no query field, add all other inputs
-        Object.keys(rest).forEach(key => {
-          if (rest[key] !== undefined && rest[key] !== null) {
-            finalRequestBody.inputs[key] = rest[key];
-          }
-        });
-        
-        // Ensure there's at least a query field for completion
-        if (Object.keys(finalRequestBody.inputs).length === 0) {
-          finalRequestBody.inputs.query = "Please process the provided data";
-        }
-      }
-
+        finalRequestBody.inputs.input = String(rest.query);
+    
       // Add files at root level if present (according to Dify docs)
       if (files && files.length > 0) {
         finalRequestBody.files = files.map((file: any) => {
