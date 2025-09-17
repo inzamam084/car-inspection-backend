@@ -68,6 +68,67 @@ function logError(requestId: string, message: string, error?: any): void {
   );
 }
 
+// Add retry mechanism for API requests
+async function makeRequestWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<Response> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      
+      // If we get a 502 Bad Gateway, retry
+      if (response.status === 502 && attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt - 1); // Exponential backoff
+        console.warn(`Attempt ${attempt} failed with 502, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      return response;
+    } catch (error) {
+      lastError = error as Error;
+      if (attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+        console.warn(`Attempt ${attempt} failed with error: ${error.message}, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+    }
+  }
+  
+  throw lastError || new Error('Max retries exceeded');
+}
+
+// Add request timeout wrapper
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = 30000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeoutMs}ms`);
+    }
+    throw error;
+  }
+}
+
 function logWarning(requestId: string, message: string, data?: any): void {
   const timestamp = new Date().toISOString();
   const logData = data
@@ -170,9 +231,10 @@ Deno.serve(async (req) => {
     // Prepare inputs based on function type (will be determined later)
     const inputs = { ...rest };
 
+    // Initialize requestData - will be updated with final request body later
     requestData = {
       inputs: inputs,
-      user: "abc-123",
+      user: userId || "abc-123",
       response_mode,
       ...(files && { files }),
     };
@@ -306,49 +368,147 @@ Deno.serve(async (req) => {
       files_count: files ? files.length : 0,
     });
 
-    // Prepare the request body for Dify API based on function type
-    let difyInputs;
+    // Prepare the request body according to Dify API documentation
+    let finalRequestBody: any;
+
     if (mappingData.type === "completion") {
-      // For completion: only include query in inputs
-      difyInputs = { query: inputs.query };
+      // For completion API: follow the exact structure from Dify docs
+      finalRequestBody = {
+        inputs: {},
+        response_mode: response_mode || "blocking",
+        user: userId || "abc-123",
+      };
+
+      // Add all inputs to the inputs object properly
+      Object.keys(rest).forEach((key) => {
+        if (rest[key] !== undefined && rest[key] !== null) {
+          // Convert all inputs to strings as required by Dify
+          finalRequestBody.inputs[key] = String(rest[key]);
+        }
+      });
+
+      // Ensure there's always a default input if none provided
+      if (Object.keys(finalRequestBody.inputs).length === 0) {
+        finalRequestBody.inputs.input = "Analyze the provided image";
+      }
+
+      // Add files at root level if present (according to Dify docs)
+      if (files && files.length > 0) {
+        finalRequestBody.files = files.map((file: any) => {
+          // Ensure proper file format according to Dify docs
+          const fileObj: any = {
+            type: file.type || "image",
+          };
+
+          if (file.transfer_method === "local_file" && file.upload_file_id) {
+            fileObj.transfer_method = "local_file";
+            fileObj.upload_file_id = file.upload_file_id;
+          } else {
+            fileObj.transfer_method = "remote_url";
+            fileObj.url = file.url || file;
+          }
+
+          return fileObj;
+        });
+      }
     } else {
-      // For workflow: include all inputs including inspection_id
-      difyInputs = { ...inputs };
+      // For workflow API: structure according to workflow requirements
+      finalRequestBody = {
+        inputs: {},
+        response_mode: response_mode || "blocking",
+        user: userId || "abc-123",
+      };
+
+      // Add all inputs to the inputs object
+      Object.keys(rest).forEach((key) => {
+        if (rest[key] !== undefined && rest[key] !== null) {
+          finalRequestBody.inputs[key] = String(rest[key]);
+        }
+      });
+
+      // Add inspection_id if provided
       if (inspection_id) {
-        difyInputs.inspection_id = inspection_id;
+        finalRequestBody.inputs.inspection_id = inspection_id;
+      }
+
+      // Add user_id to inputs for workflow context
+      if (userId) {
+        finalRequestBody.inputs.user_id = userId;
+      }
+
+      // For workflows, files might need to be in inputs or at root level
+      // Check if files should be in inputs as images array
+      if (files && files.length > 0) {
+        finalRequestBody.inputs.images = files.map((file: any) => {
+          const fileObj: any = {
+            type: file.type || "image",
+          };
+
+          if (file.transfer_method === "local_file" && file.upload_file_id) {
+            fileObj.transfer_method = "local_file";
+            fileObj.upload_file_id = file.upload_file_id;
+          } else {
+            fileObj.transfer_method = "remote_url";
+            fileObj.url = file.url || file;
+          }
+
+          return fileObj;
+        });
       }
     }
 
-    const difyRequestBody: any = {
-      inputs: difyInputs,
-      user: "abc-123",
-      response_mode,
-    };
+    // Update requestData with the final request body for logging
+    requestData = finalRequestBody;
 
-    // Add files parameter at root level if present
-    if (files && files.length > 0) {
-      difyRequestBody.files = files;
-    }
+    logDebug(requestId, "Final request body prepared", {
+      type: mappingData.type,
+      inputs_keys: Object.keys(finalRequestBody.inputs || {}),
+      has_files: !!(finalRequestBody.files || finalRequestBody.inputs?.images),
+      response_mode: finalRequestBody.response_mode,
+      user: finalRequestBody.user,
+    });
 
-    console.log("DIFY REQUEST BODY : ", difyRequestBody);
-
-    const response = await fetch(difyUrl, {
+    // Make the request to Dify API with proper headers and retry mechanism
+    logDebug(requestId, "Making request to Dify API", {
+      url: difyUrl,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${mappingData.api_key}`,
+        Authorization: `Bearer ${
+          mappingData.api_key ? "[PRESENT]" : "[MISSING]"
+        }`,
       },
-      body: JSON.stringify(difyRequestBody),
+      body_preview: JSON.stringify(finalRequestBody).substring(0, 500),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      errorMessage = `Dify API request failed: ${response.status} - ${errorText}`;
-      logError(requestId, "Dify API request failed", {
+    // Prepare request options
+    const requestOptions: RequestInit = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${mappingData.api_key}`,
+        "User-Agent": "FixMate-Backend/1.0",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(finalRequestBody),
+    };
+
+    let response: Response;
+    try {
+      // Use retry mechanism with timeout for robust API calls
+      response = await makeRequestWithRetry(difyUrl, requestOptions, 3, 2000);
+      
+      logInfo(requestId, "Dify API request completed", {
         status: response.status,
         statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+    } catch (error) {
+      errorMessage = `Failed to connect to Dify API: ${error.message}`;
+      logError(requestId, "Dify API connection failed", {
+        error: error.message,
         url: difyUrl,
-        errorText: truncateIfNeeded(errorText),
+        requestBody: truncateIfNeeded(JSON.stringify(finalRequestBody)),
       });
 
       // Log error to database
@@ -360,7 +520,57 @@ Deno.serve(async (req) => {
         user_id: userId,
         inspection_id: inspectionId,
         function_name: functionName,
-        request_data: requestData,
+        request_data: finalRequestBody,
+        error: errorMessage,
+        started_at: startedAt,
+        ended_at: endedAt,
+        execution_time: executionTime,
+      });
+
+      return new Response(
+        JSON.stringify({
+          error: "Failed to connect to Dify API",
+          details: error.message,
+          retry_attempted: true,
+        }),
+        {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+    if (!response.ok) {
+      const errorText = await response.text();
+      errorMessage = `Dify API request failed: ${response.status} - ${errorText}`;
+
+      // Try to parse error as JSON for better error details
+      let parsedError: any = null;
+      try {
+        parsedError = JSON.parse(errorText);
+      } catch (parseErr) {
+        // Error text is not JSON, keep as is
+      }
+
+      logError(requestId, "Dify API request failed", {
+        status: response.status,
+        statusText: response.statusText,
+        url: difyUrl,
+        errorText: truncateIfNeeded(errorText),
+        parsedError: parsedError,
+        requestBody: truncateIfNeeded(JSON.stringify(finalRequestBody)),
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+
+      // Log error to database
+      const endTime = Date.now();
+      const endedAt = new Date().toISOString();
+      const executionTime = (endTime - startTime) / 1000;
+
+      await logActivity(supabase, {
+        user_id: userId,
+        inspection_id: inspectionId,
+        function_name: functionName,
+        request_data: finalRequestBody, // Use the actual request body sent
         error: errorMessage,
         started_at: startedAt,
         ended_at: endedAt,
@@ -371,7 +581,10 @@ Deno.serve(async (req) => {
         JSON.stringify({
           error: "Dify API request failed",
           status: response.status,
-          details: errorText,
+          statusText: response.statusText,
+          details: parsedError || errorText,
+          dify_error_code: parsedError?.code,
+          dify_error_message: parsedError?.message,
         }),
         {
           status: response.status,

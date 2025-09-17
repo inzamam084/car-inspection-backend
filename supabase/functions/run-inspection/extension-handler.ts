@@ -6,6 +6,7 @@ import { Database } from "./database.ts";
 import type { ExtensionVehicleData } from "./schemas.ts";
 import { RequestContext } from "./logging.ts";
 import { SUPABASE_CONFIG } from "./config.ts";
+import { supabase } from "./config.ts";
 
 // Retry configuration
 const RETRY_CONFIG = {
@@ -68,6 +69,110 @@ async function retryWithBackoff<T>(
   }
 
   throw lastError!;
+}
+
+/**
+ * Helper function to compress image if it's larger than 3MB
+ * Extracts storage path from URL and uses Supabase transform API
+ */
+async function compressImageIfNeeded(
+  imageUrl: string,
+  ctx: RequestContext
+): Promise<string> {
+  try {
+    // First check if we need to compress by getting file size
+    const headResponse = await fetch(imageUrl, { method: "HEAD" });
+    const contentLength = headResponse.headers.get("content-length");
+    const fileSize = contentLength ? parseInt(contentLength) : 0;
+
+    const maxSizeBytes = 1 * 1024 * 1024; // 3MB
+
+    if (fileSize <= maxSizeBytes) {
+      ctx.info("Image size is acceptable, no compression needed", {
+        file_size_mb: Math.round((fileSize / 1024 / 1024) * 100) / 100,
+      });
+      return imageUrl; // Return original URL if under 3MB
+    }
+
+    ctx.info("Image size exceeds 3MB, compressing...", {
+      original_size_mb: Math.round((fileSize / 1024 / 1024) * 100) / 100,
+    });
+
+    // Extract storage path from Supabase URL
+    const storageInfo = extractStoragePathFromUrl(imageUrl);
+    if (!storageInfo) {
+      ctx.warn("Could not extract storage path from URL, using original", {
+        url: imageUrl,
+      });
+      return imageUrl;
+    }
+
+    ctx.debug("Extracted storage info", {
+      bucket: storageInfo.bucket,
+      path: storageInfo.path,
+    });
+
+    // Create signed URL with transform to compress
+    const { data: signedUrlData, error: signedUrlError } =
+      await supabase.storage
+        .from(storageInfo.bucket) // Use the extracted bucket name
+        .createSignedUrl(storageInfo.path, 300, {
+          // 5 minutes expiry
+          transform: {
+            width: 1280,
+            quality: 70,
+            // Remove format parameter to allow automatic optimization (WebP detection)
+            // Supabase will automatically serve WebP to compatible browsers
+          },
+        });
+
+    if (signedUrlError) {
+      ctx.warn("Failed to create compressed URL, using original", {
+        error: signedUrlError.message,
+      });
+      return imageUrl;
+    }
+
+    ctx.info("Successfully created compressed image URL", {
+      original_url: imageUrl,
+      compressed_url: signedUrlData.signedUrl,
+    });
+
+    return signedUrlData.signedUrl;
+  } catch (error) {
+    ctx.warn("Error during compression attempt, using original URL", {
+      error: (error as Error).message,
+      original_url: imageUrl,
+    });
+    return imageUrl;
+  }
+}
+
+/**
+ * Extract storage path from Supabase storage URL
+ * Example: https://mdwuqrghdiigjktfhmuc.supabase.co/storage/v1/object/public/inspection-photos/screenshot-1758033756196-1758033758063.png
+ * Returns: { bucket: "inspection-photos", path: "screenshot-1758033756196-1758033758063.png" }
+ */
+function extractStoragePathFromUrl(
+  url: string
+): { bucket: string; path: string } | null {
+  try {
+    // Pattern for Supabase storage URLs
+    const storageUrlPattern = /\/storage\/v1\/object\/public\/([^\/]+)\/(.+)$/;
+    const match = url.match(storageUrlPattern);
+
+    if (match && match[1] && match[2]) {
+      return {
+        bucket: match[1], // bucket name
+        path: match[2], // file path within bucket
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.warn("Failed to extract storage path from URL:", error);
+    return null;
+  }
 }
 
 // Interface for the image data extraction response
@@ -138,6 +243,12 @@ export async function processExtensionData(
       });
 
       try {
+        // Compress the image if it's larger than 3MB before sending to image_data_extract
+        const processedImageUrl = await compressImageIfNeeded(
+          vehicleData.page_screenshot.storageUrl,
+          ctx
+        );
+
         const functionCallPayload = {
           function_name: "image_data_extract",
           query: "Provide the results with the image url",
@@ -147,7 +258,7 @@ export async function processExtensionData(
             {
               type: "image",
               transfer_method: "remote_url",
-              url: vehicleData.page_screenshot?.storageUrl,
+              url: processedImageUrl, // Use the potentially compressed URL
             },
           ],
         };
@@ -260,8 +371,8 @@ export async function processExtensionData(
           // Continue with null extractedVehicleData - process will continue
         }
       } catch (error) {
-        ctx.error(
-          "Screenshot data extraction failed after retries - failing inspection due to incomplete vehicle data",
+        ctx.info(
+          "Screenshot data extraction failed after retries - continuing without extracted data",
           {
             inspection_id: inspectionId,
             error: (error as Error).message,

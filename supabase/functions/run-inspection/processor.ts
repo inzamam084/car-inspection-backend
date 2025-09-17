@@ -90,6 +90,7 @@ export async function runAnalysisInBackground(
         response_mode: "streaming",
         inspection_id: inspectionId,
         user_id: ctx.userId,
+        query: "Run car inspection analysis workflow",
       }),
     })
       .then(async (functionCallResponse) => {
