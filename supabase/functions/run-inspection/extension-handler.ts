@@ -120,7 +120,7 @@ async function compressImageIfNeeded(
           // 5 minutes expiry
           transform: {
             width: 1280,
-            quality: 70,
+            quality: 80,
             // Remove format parameter to allow automatic optimization (WebP detection)
             // Supabase will automatically serve WebP to compatible browsers
           },
