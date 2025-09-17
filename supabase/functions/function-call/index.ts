@@ -68,6 +68,67 @@ function logError(requestId: string, message: string, error?: any): void {
   );
 }
 
+// Add retry mechanism for API requests
+async function makeRequestWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<Response> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      
+      // If we get a 502 Bad Gateway, retry
+      if (response.status === 502 && attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt - 1); // Exponential backoff
+        console.warn(`Attempt ${attempt} failed with 502, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      return response;
+    } catch (error) {
+      lastError = error as Error;
+      if (attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+        console.warn(`Attempt ${attempt} failed with error: ${error.message}, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+    }
+  }
+  
+  throw lastError || new Error('Max retries exceeded');
+}
+
+// Add request timeout wrapper
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = 30000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeoutMs}ms`);
+    }
+    throw error;
+  }
+}
+
 function logWarning(requestId: string, message: string, data?: any): void {
   const timestamp = new Date().toISOString();
   const logData = data
@@ -318,9 +379,18 @@ Deno.serve(async (req) => {
         user: userId || "abc-123",
       };
 
-      // Add all inputs to the inputs object
-      // For completion, the main input should be in 'query' field if it's a text input
-      finalRequestBody.inputs.input = String(rest.query);
+      // Add all inputs to the inputs object properly
+      Object.keys(rest).forEach((key) => {
+        if (rest[key] !== undefined && rest[key] !== null) {
+          // Convert all inputs to strings as required by Dify
+          finalRequestBody.inputs[key] = String(rest[key]);
+        }
+      });
+
+      // Ensure there's always a default input if none provided
+      if (Object.keys(finalRequestBody.inputs).length === 0) {
+        finalRequestBody.inputs.input = "Analyze the provided image";
+      }
 
       // Add files at root level if present (according to Dify docs)
       if (files && files.length > 0) {
@@ -398,7 +468,7 @@ Deno.serve(async (req) => {
       user: finalRequestBody.user,
     });
 
-    // Make the request to Dify API with proper headers
+    // Make the request to Dify API with proper headers and retry mechanism
     logDebug(requestId, "Making request to Dify API", {
       url: difyUrl,
       method: "POST",
@@ -410,38 +480,64 @@ Deno.serve(async (req) => {
       },
       body_preview: JSON.stringify(finalRequestBody).substring(0, 500),
     });
+
+    // Prepare request options
+    const requestOptions: RequestInit = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${mappingData.api_key}`,
+        "User-Agent": "FixMate-Backend/1.0",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(finalRequestBody),
+    };
+
     let response: Response;
-    if (mappingData.type === "completion") {
-      response = await fetch(difyUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${mappingData.api_key}`,
-        },
-        body: JSON.stringify({
-          inputs: {
-            input: "Provide the results with the image url",
-          },
-          response_mode: "blocking",
-          user: "abc-123",
-          files: [
-            {
-              type: "image",
-              transfer_method: "remote_url",
-              url: files && files.length > 0 ? String(files[0].url) : "",
-            },
-          ],
+    try {
+      // Use retry mechanism with timeout for robust API calls
+      response = await makeRequestWithRetry(difyUrl, requestOptions, 3, 2000);
+      
+      logInfo(requestId, "Dify API request completed", {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+    } catch (error) {
+      errorMessage = `Failed to connect to Dify API: ${error.message}`;
+      logError(requestId, "Dify API connection failed", {
+        error: error.message,
+        url: difyUrl,
+        requestBody: truncateIfNeeded(JSON.stringify(finalRequestBody)),
+      });
+
+      // Log error to database
+      const endTime = Date.now();
+      const endedAt = new Date().toISOString();
+      const executionTime = (endTime - startTime) / 1000;
+
+      await logActivity(supabase, {
+        user_id: userId,
+        inspection_id: inspectionId,
+        function_name: functionName,
+        request_data: finalRequestBody,
+        error: errorMessage,
+        started_at: startedAt,
+        ended_at: endedAt,
+        execution_time: executionTime,
+      });
+
+      return new Response(
+        JSON.stringify({
+          error: "Failed to connect to Dify API",
+          details: error.message,
+          retry_attempted: true,
         }),
-      });
-    } else {
-      response = await fetch(difyUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${mappingData.api_key}`,
-        },
-        body: JSON.stringify(finalRequestBody),
-      });
+        {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
     }
     if (!response.ok) {
       const errorText = await response.text();
