@@ -85,7 +85,7 @@ async function compressImageIfNeeded(
     const contentLength = headResponse.headers.get("content-length");
     const fileSize = contentLength ? parseInt(contentLength) : 0;
 
-    const maxSizeBytes = 3 * 1024 * 1024; // 3MB
+    const maxSizeBytes = 1 * 1024 * 1024; // 3MB
 
     if (fileSize <= maxSizeBytes) {
       ctx.info("Image size is acceptable, no compression needed", {
@@ -153,7 +153,9 @@ async function compressImageIfNeeded(
  * Example: https://mdwuqrghdiigjktfhmuc.supabase.co/storage/v1/object/public/inspection-photos/screenshot-1758033756196-1758033758063.png
  * Returns: { bucket: "inspection-photos", path: "screenshot-1758033756196-1758033758063.png" }
  */
-function extractStoragePathFromUrl(url: string): { bucket: string; path: string } | null {
+function extractStoragePathFromUrl(
+  url: string
+): { bucket: string; path: string } | null {
   try {
     // Pattern for Supabase storage URLs
     const storageUrlPattern = /\/storage\/v1\/object\/public\/([^\/]+)\/(.+)$/;
@@ -162,7 +164,7 @@ function extractStoragePathFromUrl(url: string): { bucket: string; path: string 
     if (match && match[1] && match[2]) {
       return {
         bucket: match[1], // bucket name
-        path: match[2]    // file path within bucket
+        path: match[2], // file path within bucket
       };
     }
 
