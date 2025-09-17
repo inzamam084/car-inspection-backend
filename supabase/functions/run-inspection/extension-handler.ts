@@ -244,10 +244,10 @@ export async function processExtensionData(
 
       try {
         // Compress the image if it's larger than 3MB before sending to image_data_extract
-        const processedImageUrl = await compressImageIfNeeded(
-          vehicleData.page_screenshot.storageUrl,
-          ctx
-        );
+        // const processedImageUrl = await compressImageIfNeeded(
+        //   vehicleData.page_screenshot.storageUrl,
+        //   ctx
+        // );
 
         const functionCallPayload = {
           function_name: "image_data_extract",
@@ -258,7 +258,7 @@ export async function processExtensionData(
             {
               type: "image",
               transfer_method: "remote_url",
-              url: processedImageUrl, // Use the potentially compressed URL
+              url: vehicleData.page_screenshot?.storageUrl, // Use the potentially compressed URL
             },
           ],
         };
