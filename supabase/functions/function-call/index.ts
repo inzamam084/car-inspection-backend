@@ -170,9 +170,10 @@ Deno.serve(async (req) => {
     // Prepare inputs based on function type (will be determined later)
     const inputs = { ...rest };
 
+    // Initialize requestData - will be updated with final request body later
     requestData = {
       inputs: inputs,
-      user: "abc-123",
+      user: userId || "abc-123",
       response_mode,
       ...(files && { files }),
     };
@@ -306,85 +307,128 @@ Deno.serve(async (req) => {
       files_count: files ? files.length : 0,
     });
 
-    // Prepare the request body for Dify API based on function type
-    const difyRequestBody: any = {
-      user: "abc-123",
-      response_mode,
-    };
-
-    if (mappingData.type === "completion") {
-      // For completion: include all inputs in the inputs object (same as workflow)
-      difyRequestBody.inputs = { ...inputs };
-    } else {
-      // For workflow: include all inputs in the inputs object
-      const difyInputs = { ...inputs };
-      if (inspection_id) {
-        difyInputs.inspection_id = inspection_id;
-      }
-      difyRequestBody.inputs = difyInputs;
-    }
-
-    // Add files parameter at root level if present
-    if (files && files.length > 0) {
-      difyRequestBody.files = files;
-    }
-
-    // Construct the final request body to match your working example exactly
+    // Prepare the request body according to Dify API documentation
     let finalRequestBody: any;
     
     if (mappingData.type === "completion") {
-      // For completion: match the working example structure exactly
+      // For completion API: follow the exact structure from Dify docs
       finalRequestBody = {
-        inputs: {
-          query: rest.query || "Provide the results with the image url"
-        },
+        inputs: {},
         response_mode: response_mode || "blocking",
         user: userId || "abc-123"
       };
-      
-      // Add files at root level if present (matching working example)
+
+      // Add all inputs to the inputs object
+      // For completion, the main input should be in 'query' field if it's a text input
+      if (rest.query) {
+        finalRequestBody.inputs.query = rest.query;
+      } else {
+        // If no query field, add all other inputs
+        Object.keys(rest).forEach(key => {
+          if (rest[key] !== undefined && rest[key] !== null) {
+            finalRequestBody.inputs[key] = rest[key];
+          }
+        });
+        
+        // Ensure there's at least a query field for completion
+        if (Object.keys(finalRequestBody.inputs).length === 0) {
+          finalRequestBody.inputs.query = "Please process the provided data";
+        }
+      }
+
+      // Add files at root level if present (according to Dify docs)
       if (files && files.length > 0) {
-        finalRequestBody.files = files.map((file: any) => ({
-          type: file.type || "image",
-          transfer_method: file.transfer_method || "remote_url",
-          url: file.url || file || ""
-        }));
+        finalRequestBody.files = files.map((file: any) => {
+          // Ensure proper file format according to Dify docs
+          const fileObj: any = {
+            type: file.type || "image"
+          };
+
+          if (file.transfer_method === "local_file" && file.upload_file_id) {
+            fileObj.transfer_method = "local_file";
+            fileObj.upload_file_id = file.upload_file_id;
+          } else {
+            fileObj.transfer_method = "remote_url";
+            fileObj.url = file.url || file;
+          }
+
+          return fileObj;
+        });
       }
     } else {
-      // For workflow: keep existing structure but clean it up
+      // For workflow API: structure according to workflow requirements
       finalRequestBody = {
-        inputs: {
-          ...(files && files.length > 0 && {
-            images: files.map((file: any) => ({
-              type: file.type || "image",
-              transfer_method: file.transfer_method || "remote_url",
-              url: file.url || file || "",
-            }))
-          }),
-          inspection_query: rest.query || rest.inspection_query || "Analyze the car inspection images",
-          user_id: userId || "abc-123",
-          inspection_id: inspection_id || "",
-          ...Object.fromEntries(
-            Object.entries(rest)
-              .filter(([key]) => !['query', 'inspection_query'].includes(key))
-              .map(([key, value]) => [key, String(value || "")])
-          ),
-        },
+        inputs: {},
         response_mode: response_mode || "blocking",
-        user: userId || "abc-123",
+        user: userId || "abc-123"
       };
+
+      // Add all inputs to the inputs object
+      Object.keys(rest).forEach(key => {
+        if (rest[key] !== undefined && rest[key] !== null) {
+          finalRequestBody.inputs[key] = String(rest[key]);
+        }
+      });
+
+      // Add inspection_id if provided
+      if (inspection_id) {
+        finalRequestBody.inputs.inspection_id = inspection_id;
+      }
+
+      // Add user_id to inputs for workflow context
+      if (userId) {
+        finalRequestBody.inputs.user_id = userId;
+      }
+
+      // For workflows, files might need to be in inputs or at root level
+      // Check if files should be in inputs as images array
+      if (files && files.length > 0) {
+        finalRequestBody.inputs.images = files.map((file: any) => {
+          const fileObj: any = {
+            type: file.type || "image"
+          };
+
+          if (file.transfer_method === "local_file" && file.upload_file_id) {
+            fileObj.transfer_method = "local_file";
+            fileObj.upload_file_id = file.upload_file_id;
+          } else {
+            fileObj.transfer_method = "remote_url";
+            fileObj.url = file.url || file;
+          }
+
+          return fileObj;
+        });
+      }
     }
 
-    console.log("DIFY REQUEST BODY:", JSON.stringify(finalRequestBody, null, 2));
-    console.log("API Key Present:", mappingData.api_key);
+    // Update requestData with the final request body for logging
+    requestData = finalRequestBody;
+
+    logDebug(requestId, "Final request body prepared", {
+      type: mappingData.type,
+      inputs_keys: Object.keys(finalRequestBody.inputs || {}),
+      has_files: !!(finalRequestBody.files || finalRequestBody.inputs?.images),
+      response_mode: finalRequestBody.response_mode,
+      user: finalRequestBody.user
+    });
+
+    // Make the request to Dify API with proper headers
+    logDebug(requestId, "Making request to Dify API", {
+      url: difyUrl,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${mappingData.api_key ? '[PRESENT]' : '[MISSING]'}`
+      },
+      body_preview: JSON.stringify(finalRequestBody).substring(0, 500)
+    });
 
     const response = await fetch(difyUrl, {
       method: "POST",
       headers: {
-        Accept: "*/*",
-        "User-Agent": "Thunder Client (https://www.thunderclient.com)",
         "Content-Type": "application/json",
-        Authorization: `Bearer ${mappingData.api_key}`,
+        "Authorization": `Bearer ${mappingData.api_key}`,
+        "Accept": "application/json"
       },
       body: JSON.stringify(finalRequestBody),
     });
@@ -392,11 +436,23 @@ Deno.serve(async (req) => {
     if (!response.ok) {
       const errorText = await response.text();
       errorMessage = `Dify API request failed: ${response.status} - ${errorText}`;
+      
+      // Try to parse error as JSON for better error details
+      let parsedError: any = null;
+      try {
+        parsedError = JSON.parse(errorText);
+      } catch (parseErr) {
+        // Error text is not JSON, keep as is
+      }
+
       logError(requestId, "Dify API request failed", {
         status: response.status,
         statusText: response.statusText,
         url: difyUrl,
         errorText: truncateIfNeeded(errorText),
+        parsedError: parsedError,
+        requestBody: truncateIfNeeded(JSON.stringify(finalRequestBody)),
+        headers: Object.fromEntries(response.headers.entries())
       });
 
       // Log error to database
@@ -408,7 +464,7 @@ Deno.serve(async (req) => {
         user_id: userId,
         inspection_id: inspectionId,
         function_name: functionName,
-        request_data: requestData,
+        request_data: finalRequestBody, // Use the actual request body sent
         error: errorMessage,
         started_at: startedAt,
         ended_at: endedAt,
@@ -419,7 +475,10 @@ Deno.serve(async (req) => {
         JSON.stringify({
           error: "Dify API request failed",
           status: response.status,
-          details: errorText,
+          statusText: response.statusText,
+          details: parsedError || errorText,
+          dify_error_code: parsedError?.code,
+          dify_error_message: parsedError?.message
         }),
         {
           status: response.status,
