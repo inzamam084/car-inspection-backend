@@ -235,7 +235,7 @@ export async function processExtensionData(
           vehicleData.page_screenshot.storageUrl,
           ctx
         );
-        
+
         const functionCallPayload = {
           function_name: "image_data_extract",
           query: "Provide the results with the image url",
