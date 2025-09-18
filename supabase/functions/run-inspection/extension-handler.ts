@@ -120,7 +120,7 @@ async function compressImageIfNeeded(
       quality: 80
     };
 
-    const compressionResponse = await fetch("https://stg.fixpilot.ai/api/compress-image", {
+    const compressionResponse = await fetch("https://fixpilot.ai/api/compress-image", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
