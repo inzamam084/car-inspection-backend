@@ -76,48 +76,51 @@ export async function runAnalysisInBackground(
       }
     }
 
-    // Fire-and-forget request to function-call service
-    ctx.info("Sending request to function-call service for Dify workflow");
-    // We don't await the streaming response since it will run in background
-    fetch(`${SUPABASE_CONFIG.url}/functions/v1/function-call`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
-      },
-      body: JSON.stringify({
-        function_name: "car_inspection_workflow",
-        response_mode: "streaming",
-        inspection_id: inspectionId,
-        user_id: ctx.userId,
-        query: "Run car inspection analysis workflow",
-      }),
-    })
-      .then(async (functionCallResponse) => {
-        if (!functionCallResponse.ok) {
-          const errorText = await functionCallResponse.text();
-          ctx.error("Function-call service request failed", {
-            status: functionCallResponse.status,
-            status_text: functionCallResponse.statusText,
-            error_text: errorText,
-          });
-          return;
-        }
-
-        ctx.info(
-          "Successfully initiated Dify workflow via function-call service"
-        );
-
-        // The streaming response will be handled entirely by the function-call service
-        // We don't need to process the stream here since it's fire-and-forget
-      })
-      .catch((error) => {
-        ctx.error("Error sending data to function-call service", {
-          error: (error as Error).message,
-        });
+    // Instead of making a fire-and-forget call, trigger function-call with background processing enabled
+    ctx.info("Triggering function-call service for background Dify workflow execution");
+    
+    try {
+      const functionCallResponse = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/function-call`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+          "X-Background-Processing": "true", // Signal to function-call to run in background
+        },
+        body: JSON.stringify({
+          function_name: "car_inspection_workflow",
+          response_mode: "streaming",
+          inspection_id: inspectionId,
+          user_id: ctx.userId,
+          query: "Run car inspection analysis workflow",
+          background_mode: true, // Flag to indicate background processing
+        }),
       });
 
-    ctx.info("Dify workflow request sent to function-call service");
+      if (!functionCallResponse.ok) {
+        const errorText = await functionCallResponse.text();
+        ctx.error("Function-call service request failed", {
+          status: functionCallResponse.status,
+          status_text: functionCallResponse.statusText,
+          error_text: errorText,
+        });
+        await Database.updateInspectionStatus(inspectionId, "failed");
+        return;
+      }
+
+      // For background mode, function-call should return immediately with acknowledgment
+      const responseData = await functionCallResponse.json();
+      ctx.info("Successfully triggered Dify workflow in background", {
+        response: responseData,
+      });
+
+    } catch (error) {
+      ctx.error("Error triggering function-call service", {
+        error: (error as Error).message,
+      });
+      await Database.updateInspectionStatus(inspectionId, "failed");
+    }
+
     return;
   } catch (error) {
     ctx.error("Background analysis failed", {
@@ -126,6 +129,7 @@ export async function runAnalysisInBackground(
     await Database.updateInspectionStatus(inspectionId, "failed");
   }
 }
+
 // Helper that chains scrape → analysis
 export async function runScrapeThenAnalysis(
   inspection: Inspection,

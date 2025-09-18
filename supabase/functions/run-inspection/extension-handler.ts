@@ -71,9 +71,25 @@ async function retryWithBackoff<T>(
   throw lastError!;
 }
 
+// Interface for the compression API response
+interface CompressionApiResponse {
+  success: boolean;
+  compressedUrl: string;
+  storagePath: string;
+  imageDetails: {
+    originalSize: number;
+    compressedSize: number;
+    width: number;
+    height: number;
+    format: string;
+    compressionRatio: number;
+  };
+  message: string;
+}
+
 /**
- * Helper function to compress image if it's larger than 3MB
- * Extracts storage path from URL and uses Supabase transform API
+ * Helper function to compress image if it's larger than 2MB
+ * Uses external compression API: https://stg.fixpilot.ai/api/compress-image
  */
 async function compressImageIfNeeded(
   imageUrl: string,
@@ -85,60 +101,63 @@ async function compressImageIfNeeded(
     const contentLength = headResponse.headers.get("content-length");
     const fileSize = contentLength ? parseInt(contentLength) : 0;
 
-    const maxSizeBytes = 1 * 1024 * 1024; // 3MB
+    const maxSizeBytes = 2 * 1024 * 1024; // 2MB
 
     if (fileSize <= maxSizeBytes) {
       ctx.info("Image size is acceptable, no compression needed", {
         file_size_mb: Math.round((fileSize / 1024 / 1024) * 100) / 100,
       });
-      return imageUrl; // Return original URL if under 3MB
+      return imageUrl; // Return original URL if under 2MB
     }
 
-    ctx.info("Image size exceeds 3MB, compressing...", {
+    ctx.info("Image size exceeds 2MB, compressing...", {
       original_size_mb: Math.round((fileSize / 1024 / 1024) * 100) / 100,
     });
 
-    // Extract storage path from Supabase URL
-    const storageInfo = extractStoragePathFromUrl(imageUrl);
-    if (!storageInfo) {
-      ctx.warn("Could not extract storage path from URL, using original", {
-        url: imageUrl,
-      });
-      return imageUrl;
-    }
+    // Call external compression API
+    const compressionPayload = {
+      imageUrl: imageUrl,
+      quality: 80
+    };
 
-    ctx.debug("Extracted storage info", {
-      bucket: storageInfo.bucket,
-      path: storageInfo.path,
+    const compressionResponse = await fetch("https://stg.fixpilot.ai/api/compress-image", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(compressionPayload),
     });
 
-    // Create signed URL with transform to compress
-    const { data: signedUrlData, error: signedUrlError } =
-      await supabase.storage
-        .from(storageInfo.bucket) // Use the extracted bucket name
-        .createSignedUrl(storageInfo.path, 300, {
-          // 5 minutes expiry
-          transform: {
-            width: 1280,
-            quality: 70,
-            // Remove format parameter to allow automatic optimization (WebP detection)
-            // Supabase will automatically serve WebP to compatible browsers
-          },
-        });
-
-    if (signedUrlError) {
-      ctx.warn("Failed to create compressed URL, using original", {
-        error: signedUrlError.message,
+    if (!compressionResponse.ok) {
+      const errorText = await compressionResponse.text();
+      ctx.warn("Compression API failed, using original URL", {
+        status: compressionResponse.status,
+        error: errorText,
+        original_url: imageUrl,
       });
       return imageUrl;
     }
 
-    ctx.info("Successfully created compressed image URL", {
+    const compressionResult: CompressionApiResponse = await compressionResponse.json();
+
+    if (!compressionResult.success || !compressionResult.compressedUrl) {
+      ctx.warn("Compression API returned unsuccessful result, using original URL", {
+        result: compressionResult,
+        original_url: imageUrl,
+      });
+      return imageUrl;
+    }
+
+    ctx.info("Successfully compressed image using external API", {
       original_url: imageUrl,
-      compressed_url: signedUrlData.signedUrl,
+      compressed_url: compressionResult.compressedUrl,
+      original_size_mb: Math.round((compressionResult.imageDetails.originalSize / 1024 / 1024) * 100) / 100,
+      compressed_size_mb: Math.round((compressionResult.imageDetails.compressedSize / 1024 / 1024) * 100) / 100,
+      compression_ratio: compressionResult.imageDetails.compressionRatio,
+      message: compressionResult.message,
     });
 
-    return signedUrlData.signedUrl;
+    return compressionResult.compressedUrl;
   } catch (error) {
     ctx.warn("Error during compression attempt, using original URL", {
       error: (error as Error).message,
@@ -148,32 +167,6 @@ async function compressImageIfNeeded(
   }
 }
 
-/**
- * Extract storage path from Supabase storage URL
- * Example: https://mdwuqrghdiigjktfhmuc.supabase.co/storage/v1/object/public/inspection-photos/screenshot-1758033756196-1758033758063.png
- * Returns: { bucket: "inspection-photos", path: "screenshot-1758033756196-1758033758063.png" }
- */
-function extractStoragePathFromUrl(
-  url: string
-): { bucket: string; path: string } | null {
-  try {
-    // Pattern for Supabase storage URLs
-    const storageUrlPattern = /\/storage\/v1\/object\/public\/([^\/]+)\/(.+)$/;
-    const match = url.match(storageUrlPattern);
-
-    if (match && match[1] && match[2]) {
-      return {
-        bucket: match[1], // bucket name
-        path: match[2], // file path within bucket
-      };
-    }
-
-    return null;
-  } catch (error) {
-    console.warn("Failed to extract storage path from URL:", error);
-    return null;
-  }
-}
 
 // Interface for the image data extraction response
 interface ImageDataExtractResponse {
@@ -243,7 +236,7 @@ export async function processExtensionData(
       });
 
       try {
-        // Compress the image if it's larger than 3MB before sending to image_data_extract
+        // Compress the image if it's larger than 2MB before sending to image_data_extract
         const processedImageUrl = await compressImageIfNeeded(
           vehicleData.page_screenshot.storageUrl,
           ctx

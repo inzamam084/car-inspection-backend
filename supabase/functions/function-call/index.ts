@@ -212,15 +212,20 @@ Deno.serve(async (req) => {
       user_id,
       inspection_id,
       response_mode = "blocking",
+      background_mode = false,
       files,
       ...rest
     } = body;
+
+    // Check for background processing header
+    const isBackgroundProcessing = req.headers.get("X-Background-Processing") === "true" || background_mode;
 
     logDebug(requestId, "Request body parsed", {
       function_name,
       user_id,
       inspection_id,
       response_mode,
+      background_mode: isBackgroundProcessing,
       inputs_count: Object.keys(rest).length,
       files_count: files ? files.length : 0,
     });
@@ -593,6 +598,44 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Handle background processing mode
+    if (isBackgroundProcessing && response_mode === "streaming") {
+      logInfo(requestId, "Starting background processing mode for streaming workflow");
+      
+      // Start the Dify workflow in background without waiting for completion
+      handleDifyWorkflowInBackground(
+        response,
+        requestId,
+        userId,
+        inspectionId,
+        functionName,
+        requestData,
+        startedAt,
+        supabase
+      ).catch((error) => {
+        logError(requestId, "Error in background workflow processing", {
+          error: error.message,
+          stack: error.stack,
+        });
+      });
+
+      // Return immediate acknowledgment to run-inspection
+      const immediateResponse = {
+        success: true,
+        message: "Dify workflow started in background",
+        task_id: null, // Will be available once workflow starts
+        background_processing: true,
+        execution_started_at: startedAt,
+      };
+
+      logInfo(requestId, "Background processing initiated successfully", immediateResponse);
+      
+      return new Response(JSON.stringify(immediateResponse), {
+        status: 202, // Accepted - processing in background
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    
     // Handle streaming vs blocking response
     if (response_mode === "streaming") {
       logInfo(requestId, "Handling streaming response");
@@ -753,6 +796,215 @@ Deno.serve(async (req) => {
     );
   }
 });
+
+/**
+ * Handle Dify workflow in background without client streaming
+ */
+async function handleDifyWorkflowInBackground(
+  response: Response,
+  requestId: string,
+  userId: string | null,
+  inspectionId: string | null,
+  functionName: string | null,
+  requestData: any,
+  startedAt: string,
+  supabase: any
+): Promise<void> {
+  logInfo(requestId, "🔄 [BACKGROUND_WORKFLOW] Starting background processing", {
+    function_name: functionName,
+    inspection_id: inspectionId,
+    user_id: userId ? "[PRESENT]" : "[MISSING]",
+  });
+
+  if (!response.body) {
+    throw new Error("No response body received from Dify API");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let workflowRunId: string | null = null;
+  let taskId: string | null = null;
+  let finalOutputs: any = null;
+  let totalTokens: number | null = null;
+  let accumulatedPrice: number = 0;
+  let totalPrice: string | null = null;
+  let currency: string | null = null;
+  let workflowStatus: string | null = null;
+  let nodeExecutionData: any[] = [];
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      // Accumulate chunks in buffer to handle partial JSON
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+
+      // Keep the last incomplete line in buffer
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const eventData = await processDifyStreamLine(
+            line,
+            requestId,
+            userId,
+            inspectionId,
+            functionName,
+            supabase
+          );
+
+          // Track important data for final logging
+          if (eventData) {
+            if (eventData.workflow_run_id)
+              workflowRunId = eventData.workflow_run_id;
+            if (eventData.task_id) taskId = eventData.task_id;
+
+            // Accumulate pricing data from each node_finished event
+            if (
+              eventData.event === "node_finished" &&
+              eventData.data?.execution_metadata
+            ) {
+              const nodePrice = parseFloat(
+                eventData.data.execution_metadata.total_price || "0"
+              );
+              const nodeCurrency = eventData.data.execution_metadata.currency;
+
+              if (nodePrice > 0) {
+                accumulatedPrice += nodePrice;
+                if (!currency && nodeCurrency) currency = nodeCurrency;
+
+                // Store node execution data for detailed logging
+                nodeExecutionData.push({
+                  node_id: eventData.data.node_id,
+                  node_type: eventData.data.node_type,
+                  title: eventData.data.title,
+                  index: eventData.data.index,
+                  status: eventData.data.status,
+                  elapsed_time: eventData.data.elapsed_time,
+                  tokens: eventData.data.execution_metadata.total_tokens,
+                  price: nodePrice,
+                  currency: nodeCurrency,
+                });
+
+                logDebug(
+                  requestId,
+                  `💰 [BACKGROUND_PRICE_ACCUMULATION] Node ${eventData.data.title}:`,
+                  {
+                    node_price: nodePrice,
+                    accumulated_total: accumulatedPrice,
+                    currency: nodeCurrency,
+                    node_tokens: eventData.data.execution_metadata.total_tokens,
+                  }
+                );
+              }
+            }
+
+            if (eventData.event === "workflow_finished") {
+              finalOutputs = eventData.data?.outputs;
+              totalTokens = eventData.data?.total_tokens;
+              workflowStatus = eventData.data?.status;
+
+              // workflow_finished doesn't contain total_price, so we use our accumulated total
+              totalPrice =
+                accumulatedPrice > 0 ? accumulatedPrice.toString() : null;
+
+              logInfo(
+                requestId,
+                `💰 [BACKGROUND_FINAL_PRICE] Function ${functionName}:`,
+                {
+                  accumulated_price: accumulatedPrice,
+                  final_total_price: totalPrice,
+                  currency: currency,
+                  nodes_processed: nodeExecutionData.length,
+                  total_tokens: totalTokens,
+                }
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // Log final workflow completion in background
+    if (workflowRunId && taskId) {
+      const endTime = Date.now();
+      const endedAt = new Date().toISOString();
+      const executionTime =
+        (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000;
+
+      await logActivity(supabase, {
+        user_id: userId,
+        inspection_id: inspectionId,
+        task_id: taskId,
+        workflow_run_id: workflowRunId,
+        event: "workflow_finished",
+        mode: "workflow",
+        function_name: functionName,
+        request_data: requestData,
+        response_data: {
+          ...finalOutputs,
+          node_execution_summary: nodeExecutionData,
+          price_breakdown: {
+            accumulated_from_nodes: accumulatedPrice,
+            official_total: totalPrice,
+            currency: currency,
+          },
+        },
+        answer: finalOutputs ? JSON.stringify(finalOutputs) : null,
+        total_tokens: totalTokens,
+        total_price: totalPrice,
+        currency: currency || "USD",
+        started_at: startedAt,
+        ended_at: endedAt,
+        execution_time: executionTime,
+        status: workflowStatus,
+      });
+
+      logInfo(requestId, "🏁 [BACKGROUND_WORKFLOW_COMPLETED] Successfully completed", {
+        workflow_run_id: workflowRunId,
+        task_id: taskId,
+        status: workflowStatus,
+        execution_time: executionTime,
+        nodes_executed: nodeExecutionData.length,
+        accumulated_price: accumulatedPrice,
+        official_total_price: totalPrice,
+        currency: currency,
+        inspection_id: inspectionId,
+      });
+    }
+  } catch (error) {
+    logError(requestId, "🚨 [BACKGROUND_WORKFLOW_ERROR] Error in background processing", {
+      error: error.message,
+      stack: error.stack,
+      inspection_id: inspectionId,
+      function_name: functionName,
+    });
+    
+    // Update inspection status to failed if we have inspection_id
+    if (inspectionId) {
+      try {
+        await supabase
+          .from("inspections")
+          .update({ 
+            status: "failed", 
+            error_message: `Background workflow failed: ${error.message}`,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", inspectionId);
+      } catch (updateError) {
+        logError(requestId, "Failed to update inspection status to failed", {
+          error: updateError.message,
+          inspection_id: inspectionId,
+        });
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
 
 /**
  * Handle Dify streaming response
