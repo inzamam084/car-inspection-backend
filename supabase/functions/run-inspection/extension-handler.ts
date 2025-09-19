@@ -117,16 +117,19 @@ async function compressImageIfNeeded(
     // Call external compression API
     const compressionPayload = {
       imageUrl: imageUrl,
-      quality: 80
+      quality: 80,
     };
 
-    const compressionResponse = await fetch("https://stg.fixpilot.ai/api/compress-image", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(compressionPayload),
-    });
+    const compressionResponse = await fetch(
+      "https://stg.fixpilot.ai/api/compress-image",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(compressionPayload),
+      }
+    );
 
     if (!compressionResponse.ok) {
       const errorText = await compressionResponse.text();
@@ -138,21 +141,31 @@ async function compressImageIfNeeded(
       return imageUrl;
     }
 
-    const compressionResult: CompressionApiResponse = await compressionResponse.json();
+    const compressionResult: CompressionApiResponse =
+      await compressionResponse.json();
 
     if (!compressionResult.success || !compressionResult.compressedUrl) {
-      ctx.warn("Compression API returned unsuccessful result, using original URL", {
-        result: compressionResult,
-        original_url: imageUrl,
-      });
+      ctx.warn(
+        "Compression API returned unsuccessful result, using original URL",
+        {
+          result: compressionResult,
+          original_url: imageUrl,
+        }
+      );
       return imageUrl;
     }
 
     ctx.info("Successfully compressed image using external API", {
       original_url: imageUrl,
       compressed_url: compressionResult.compressedUrl,
-      original_size_mb: Math.round((compressionResult.imageDetails.originalSize / 1024 / 1024) * 100) / 100,
-      compressed_size_mb: Math.round((compressionResult.imageDetails.compressedSize / 1024 / 1024) * 100) / 100,
+      original_size_mb:
+        Math.round(
+          (compressionResult.imageDetails.originalSize / 1024 / 1024) * 100
+        ) / 100,
+      compressed_size_mb:
+        Math.round(
+          (compressionResult.imageDetails.compressedSize / 1024 / 1024) * 100
+        ) / 100,
       compression_ratio: compressionResult.imageDetails.compressionRatio,
       message: compressionResult.message,
     });
@@ -166,7 +179,6 @@ async function compressImageIfNeeded(
     return imageUrl;
   }
 }
-
 
 // Interface for the image data extraction response
 interface ImageDataExtractResponse {
