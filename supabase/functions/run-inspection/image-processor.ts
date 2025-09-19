@@ -507,7 +507,8 @@ export class ImageProcessor {
         inspectionId,
         "uncategorized",
         urlData.publicUrl,
-        estimatedSize
+        estimatedSize,
+        url // Pass original image URL
       );
 
       if (!dbResult.success) {
@@ -569,7 +570,8 @@ export class ImageProcessor {
         inspectionId,
         "uncategorized",
         uploadResult.url,
-        imageBuffer.length
+        imageBuffer.length,
+        url // Pass original image URL
       );
 
       if (dbResult.success) {
@@ -681,13 +683,15 @@ export class ImageProcessor {
     inspectionId: string,
     category: string,
     publicUrl: string,
-    fileSize: number
+    fileSize: number,
+    originalImageUrl?: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const { error: insertError } = await supabase.from("photos").insert({
         inspection_id: inspectionId,
         category,
         path: publicUrl,
+        image_url: originalImageUrl || null, // Save original URL from extension
         storage: fileSize.toString(),
         created_at: new Date().toISOString(),
       });
