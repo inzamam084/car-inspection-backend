@@ -15,8 +15,8 @@ export interface SubscriptionPlan {
 
 export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   {
-    id: "starter",
-    name: "Starter_plan",
+    id: "starter_plan",
+    name: "Starter",
     description: "Essential auction insights for single-lot dealers",
     price: 25,
     interval: "month",
@@ -27,7 +27,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
       "Community email support",
       "Overage: $2.25 per extra report",
     ],
-    maxReports: 4,
+    maxReports: 100,
     priority: "standard",
     stripePriceId:
       Deno.env.get("NEXT_PUBLIC_STRIPE_STARTER_MONTHLY_PRICE_ID") || "",
@@ -48,13 +48,35 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
       "Priority 1-hour chat support",
       "Overage: $1.75 per extra report",
     ],
-    maxReports: 25,
+    maxReports: 350,
     priority: "priority",
     popular: true,
     stripePriceId:
       Deno.env.get("NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID") || "",
     annualPriceId: Deno.env.get("NEXT_PUBLIC_STRIPE_PRO_ANNUAL_PRICE_ID") || "",
     annualPrice: 4990,
+  },
+  {
+    id: "elite_plan",
+    name: "Elite",
+    description: "Unlimited power for group stores & wholesalers",
+    price: 349,
+    interval: "month",
+    features: [
+      "1,000 VIN report credits / month (30-day rollover)",
+      "Unlimited user seats",
+      "REST/API & SFTP data feeds",
+      "Dedicated Customer Success Manager",
+      "99.9% uptime SLA & phone support",
+      "Overage: $1.25 per extra report",
+    ],
+    maxReports: 1000,
+    priority: "premium",
+    stripePriceId:
+      Deno.env.get("NEXT_PUBLIC_STRIPE_ELITE_MONTHLY_PRICE_ID") || "",
+    annualPriceId:
+      Deno.env.get("NEXT_PUBLIC_STRIPE_ELITE_ANNUAL_PRICE_ID") || "",
+    annualPrice: 9990,
   },
   {
     id: "starter",
