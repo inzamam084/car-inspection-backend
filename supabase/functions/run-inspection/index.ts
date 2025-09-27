@@ -143,7 +143,7 @@ serve(async (req: Request, connInfo: ConnInfo) => {
 
     ctx.info("Payload ", payload);
 
-    // return;
+    return;
 
     // 4. Route to the correct business logic handler
     ctx.debug("Routing request to handler");

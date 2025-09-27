@@ -219,11 +219,16 @@ export async function processExtensionData(
     // Log extracted content details if present
     if (vehicleData.extracted_content?.complete?.content) {
       ctx.info("Extension data includes extracted content", {
-        platform: vehicleData.extracted_content.extraction_metadata?.platform || 'unknown',
+        platform:
+          vehicleData.extracted_content.extraction_metadata?.platform ||
+          "unknown",
         content_length: vehicleData.extracted_content.complete.content.length,
         word_count: vehicleData.extracted_content.complete.wordCount || 0,
-        content_preview: vehicleData.extracted_content.complete.content.substring(0, 100) + 
-          (vehicleData.extracted_content.complete.content.length > 100 ? '...' : '')
+        content_preview:
+          vehicleData.extracted_content.complete.content.substring(0, 100) +
+          (vehicleData.extracted_content.complete.content.length > 100
+            ? "..."
+            : ""),
       });
     }
 
