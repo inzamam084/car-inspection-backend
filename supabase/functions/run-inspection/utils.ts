@@ -98,7 +98,7 @@ export function createCategoryBasedChunks(
   photos: Photo[],
   obd2_codes: OBD2Code[],
   titleImages: TitleImage[],
-  maxSize: number,
+  maxSize: number
 ): ImageChunk[] {
   const chunks: ImageChunk[] = [];
   let currentChunk: ChunkImage[] = [];
@@ -148,12 +148,14 @@ export function createCategoryBasedChunks(
 
   // Sort by category priority
   const sortedImages = allImages.sort((a, b) => {
-    const aIndex = CATEGORY_PRIORITY.indexOf(a.category) !== -1
-      ? CATEGORY_PRIORITY.indexOf(a.category)
-      : CATEGORY_PRIORITY.length;
-    const bIndex = CATEGORY_PRIORITY.indexOf(b.category) !== -1
-      ? CATEGORY_PRIORITY.indexOf(b.category)
-      : CATEGORY_PRIORITY.length;
+    const aIndex =
+      CATEGORY_PRIORITY.indexOf(a.category) !== -1
+        ? CATEGORY_PRIORITY.indexOf(a.category)
+        : CATEGORY_PRIORITY.length;
+    const bIndex =
+      CATEGORY_PRIORITY.indexOf(b.category) !== -1
+        ? CATEGORY_PRIORITY.indexOf(b.category)
+        : CATEGORY_PRIORITY.length;
     return aIndex - bIndex;
   });
 
