@@ -121,7 +121,7 @@ async function compressImageIfNeeded(
     };
 
     const compressionResponse = await fetch(
-      "https://stg.fixpilot.ai/api/compress-image",
+      "https://fixpilot.ai/api/compress-image",
       {
         method: "POST",
         headers: {
@@ -213,7 +213,19 @@ export async function processExtensionData(
       model: vehicleData.model,
       year: vehicleData.year,
       images_count: vehicleData.gallery_images.length,
+      has_extracted_content: !!vehicleData.extracted_content,
     });
+
+    // Log extracted content details if present
+    if (vehicleData.extracted_content?.complete?.content) {
+      ctx.info("Extension data includes extracted content", {
+        platform: vehicleData.extracted_content.extraction_metadata?.platform || 'unknown',
+        content_length: vehicleData.extracted_content.complete.content.length,
+        word_count: vehicleData.extracted_content.complete.wordCount || 0,
+        content_preview: vehicleData.extracted_content.complete.content.substring(0, 100) + 
+          (vehicleData.extracted_content.complete.content.length > 100 ? '...' : '')
+      });
+    }
 
     // Step 1: Create inspection record first with basic vehicle data
     ctx.debug("Creating inspection record with basic vehicle data");

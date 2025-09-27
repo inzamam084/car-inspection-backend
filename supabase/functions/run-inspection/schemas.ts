@@ -86,6 +86,17 @@ export interface ExtensionVehicleData {
     timestamp: number;
     width: number;
   };
+  // Simplified field for extracted content - just the content text
+  extracted_content?: {
+    complete: {
+      content: string;
+      wordCount: number;
+      extractedAt: string;
+    } | null;
+    html?: any; // Keep for compatibility but won't save
+    structured?: any; // Keep for compatibility but won't save
+    extraction_metadata?: any; // Keep for compatibility
+  };
 }
 
 export interface ExtensionPayload {

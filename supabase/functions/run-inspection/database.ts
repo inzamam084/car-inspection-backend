@@ -137,6 +137,18 @@ export class Database {
       const mileage =
         extractedVehicleData?.Mileage?.toString() || vehicleData.mileage;
 
+      // Extract only the content text from complete if available
+      let extractedContent = null;
+      if (vehicleData.extracted_content?.complete?.content) {
+        extractedContent = vehicleData.extracted_content.complete.content;
+        
+        ctx.info("Extracting content from extension", {
+          content_length: extractedContent.length,
+          word_count: vehicleData.extracted_content.complete.wordCount || 0,
+          platform: vehicleData.extracted_content.extraction_metadata?.platform || 'unknown'
+        });
+      }
+
       // Extract relevant data for inspection
       const inspectionData = {
         email: vehicleData.email || "extension@copart.com", // Default email if not provided
@@ -147,6 +159,8 @@ export class Database {
         type: "extension", // Mark as extension-sourced
         url: vehicleData.listing_url,
         vehicle_details: extractedVehicleData, // Store complete extracted data as JSONB
+        // Store only the content text
+        extracted_content: extractedContent,
         created_at: new Date().toISOString(),
       };
 
@@ -157,6 +171,8 @@ export class Database {
         has_mileage: !!inspectionData.mileage,
         type: inspectionData.type,
         has_url: !!inspectionData.url,
+        has_extracted_content: !!inspectionData.extracted_content,
+        extracted_content_length: extractedContent?.length || 0,
       });
 
       const { data, error } = await supabase
@@ -179,6 +195,15 @@ export class Database {
           success: false,
           error: "No inspection ID returned",
         };
+      }
+
+      // Log extracted content details if available
+      if (extractedContent) {
+        ctx.info("Extracted content saved to database", {
+          inspection_id: data.id,
+          content_length: extractedContent.length,
+          content_preview: extractedContent.substring(0, 100) + (extractedContent.length > 100 ? '...' : '')
+        });
       }
 
       // Log additional vehicle metadata for reference
@@ -278,6 +303,63 @@ export class Database {
   }
 
   /**
+   * Save or update extracted content for an inspection (content text only)
+   */
+  static async saveExtractedContent(
+    inspectionId: string,
+    content: string,
+    ctx: RequestContext
+  ): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    try {
+      ctx.info("Saving extracted content to database", {
+        inspection_id: inspectionId,
+        content_length: content.length,
+        content_preview: content.substring(0, 100) + (content.length > 100 ? '...' : '')
+      });
+
+      const { error } = await supabase
+        .from("inspections")
+        .update({
+          extracted_content: content,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", inspectionId);
+
+      if (error) {
+        ctx.error("Failed to save extracted content", {
+          inspection_id: inspectionId,
+          error: error.message,
+        });
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+
+      ctx.info("Successfully saved extracted content", {
+        inspection_id: inspectionId,
+        content_length: content.length
+      });
+
+      return {
+        success: true,
+      };
+    } catch (error) {
+      ctx.error("Unexpected error saving extracted content", {
+        inspection_id: inspectionId,
+        error: (error as Error).message,
+      });
+      return {
+        success: false,
+        error: (error as Error).message,
+      };
+    }
+  }
+
+  /**
    * Get the underlying database service for advanced operations
    */
   static getDatabaseService() {
@@ -310,6 +392,7 @@ export const {
   updateJobWithResults,
   getFinalChunkResult,
   createOrUpdateReport,
+  saveExtractedContent,
   getDatabaseService,
   getSupabaseClient,
 } = Database;
