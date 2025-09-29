@@ -290,9 +290,11 @@ deno_version = 1
 
 # Edge Functions configuration
 # Declare all functions for automatic deployment with branching
-[functions.run-inspection]
+[functions.get-shared-link]
 verify_jwt = false
 
+[functions.run-inspection]
+verify_jwt = false
 
 [functions.check-subscription-access]
 verify_jwt = false
