@@ -91,35 +91,62 @@ serve(async (req: Request, connInfo: ConnInfo) => {
     ctx.debug("Request body parsed successfully", {
       payload_type: typeof payload,
       has_inspection_id: "inspection_id" in (payload as any),
+      has_token: "token" in (payload as any),
       has_vehicle_data:
         "vehicleData" in (payload as any) ||
         "gallery_images" in (payload as any),
     });
 
-    // 2. Authenticate User from JWT
-    ctx.debug("Authenticating user from JWT");
-    const { user, error: authError } = await authenticateUser(req);
-    if (authError || !user) {
-      ctx.warn(
-        "Authentication failed, calling run-inspection-old API",
-        authError
-      );
-      //       ctx.error("Authentication failed", authError);
-      // ctx.logError("Authentication required");
-      // return createErrorResponse(
-      //   "Authentication required.",
-      //   HTTP_STATUS.UNAUTHORIZED
-      // );
+    // 2. Authenticate User from JWT or Token
+    let userId: string;
+    const token = (payload as any).token;
 
-      // Fallback to run-inspection-old API when token is not available
-      return await callRunInspectionOldAPI(payload, ctx);
+    if (token) {
+      // Token-based authentication
+      ctx.debug("Token provided, fetching user from shared_links");
+      const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+      const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      const { data: sharedLink, error: tokenError } = await supabase
+        .from("shared_links")
+        .select("created_by, inspection_id")
+        .eq("token", token)
+        .single();
+
+      if (tokenError || !sharedLink) {
+        ctx.error("Invalid token", { error: tokenError?.message });
+        ctx.logError("Invalid or expired token");
+        return createErrorResponse("Invalid or expired token.", HTTP_STATUS.UNAUTHORIZED);
+      }
+
+      const inspectionId = (payload as any).inspection_id;
+      if (sharedLink.inspection_id !== inspectionId) {
+        ctx.error("Token does not match inspection");
+        ctx.logError("Token does not match inspection ID");
+        return createErrorResponse("Token does not match inspection.", HTTP_STATUS.FORBIDDEN);
+      }
+
+      userId = sharedLink.created_by;
+      ctx.setUser(userId);
+      ctx.info("Token authenticated successfully", { user_id: "[PRESENT]", source: "token" });
+    } else {
+      // JWT-based authentication
+      ctx.debug("Authenticating user from JWT");
+      const { user, error: authError } = await authenticateUser(req);
+      if (authError || !user) {
+        ctx.warn("Authentication failed, calling run-inspection-old API", authError);
+        return await callRunInspectionOldAPI(payload, ctx);
+      }
+      userId = user.id;
+      ctx.setUser(userId);
+      ctx.info("User authenticated successfully", { user_id: "[PRESENT]", source: "jwt" });
     }
-    ctx.setUser(user.id);
-    ctx.info("User authenticated successfully", { user_id: "[PRESENT]" });
 
     // 3. Perform Subscription and Usage Check
     ctx.debug("Performing subscription and usage check");
-    const subscriptionCheck = await withSubscriptionCheck(user.id, {
+    const subscriptionCheck = await withSubscriptionCheck(userId, {
       requireSubscription: true,
       checkUsageLimit: true,
       incrementUsage: true,
