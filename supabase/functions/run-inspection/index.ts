@@ -75,6 +75,12 @@ async function callRunInspectionOldAPI(
   }
 }
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
 // --- Main Server ---
 serve(async (req: Request, connInfo: ConnInfo) => {
   const ctx = new RequestContext();
@@ -82,15 +88,7 @@ serve(async (req: Request, connInfo: ConnInfo) => {
 
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers":
-          "authorization, x-client-info, apikey, content-type",
-      },
-    });
+    return new Response("ok", { headers: corsHeaders });
   }
 
   ctx.info("Request received", {
