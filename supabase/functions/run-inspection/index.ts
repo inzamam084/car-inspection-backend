@@ -77,6 +77,18 @@ serve(async (req: Request, connInfo: ConnInfo) => {
   const ctx = new RequestContext();
   const { remoteAddr } = connInfo;
 
+  // Handle CORS preflight requests
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+      },
+    });
+  }
+
   ctx.info("Request received", {
     url: req.url,
     method: req.method,
@@ -265,29 +277,55 @@ serve(async (req: Request, connInfo: ConnInfo) => {
     ctx.debug("Routing request to handler");
     const response = await routeRequest(payload, ctx);
     ctx.logSuccess({ status: response.status });
-    return response;
+    
+    // Add CORS headers to response
+    const headers = new Headers(response.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    headers.set("Access-Control-Allow-Headers", "authorization, x-client-info, apikey, content-type");
+    
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   } catch (error) {
     ctx.error("Unhandled error in request pipeline", {
       error: (error as Error).message,
       stack: (error as Error).stack,
     });
 
+    let errorResponse: Response;
+    
     // Respond to known parsing/validation errors with 400
     if (
       (error as Error).message.includes("Request body") ||
       (error as Error).message.includes("Invalid JSON")
     ) {
       ctx.logError((error as Error).message);
-      return createErrorResponse(
+      errorResponse = createErrorResponse(
         (error as Error).message,
         HTTP_STATUS.BAD_REQUEST
       );
+    } else {
+      // Generic fallback for all other unexpected errors
+      ctx.logError("Internal server error");
+      errorResponse = createErrorResponse(
+        "Internal server error.",
+        HTTP_STATUS.INTERNAL_SERVER_ERROR
+      );
     }
-    // Generic fallback for all other unexpected errors
-    ctx.logError("Internal server error");
-    return createErrorResponse(
-      "Internal server error.",
-      HTTP_STATUS.INTERNAL_SERVER_ERROR
-    );
+    
+    // Add CORS headers to error response
+    const headers = new Headers(errorResponse.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    headers.set("Access-Control-Allow-Headers", "authorization, x-client-info, apikey, content-type");
+    
+    return new Response(errorResponse.body, {
+      status: errorResponse.status,
+      statusText: errorResponse.statusText,
+      headers,
+    });
   }
 });
