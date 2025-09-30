@@ -109,9 +109,19 @@ serve(async (req: Request, connInfo: ConnInfo) => {
       const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+      // Query shared_links and join with shared_link_inspections
       const { data: sharedLink, error: tokenError } = await supabase
         .from("shared_links")
-        .select("created_by, inspection_id")
+        .select(`
+          created_by,
+          status,
+          expires_at,
+          max_uses,
+          current_uses,
+          shared_link_inspections!inner(
+            inspection_id
+          )
+        `)
         .eq("token", token)
         .single();
 
@@ -121,16 +131,95 @@ serve(async (req: Request, connInfo: ConnInfo) => {
         return createErrorResponse("Invalid or expired token.", HTTP_STATUS.UNAUTHORIZED);
       }
 
-      const inspectionId = (payload as any).inspection_id;
-      if (sharedLink.inspection_id !== inspectionId) {
-        ctx.error("Token does not match inspection");
-        ctx.logError("Token does not match inspection ID");
-        return createErrorResponse("Token does not match inspection.", HTTP_STATUS.FORBIDDEN);
+      // Verify token status is active
+      if (sharedLink.status !== "active") {
+        ctx.error("Token is not active", { status: sharedLink.status });
+        ctx.logError(`Token status is ${sharedLink.status}`);
+        return createErrorResponse(
+          `Token is ${sharedLink.status}. Please request a new link.`,
+          HTTP_STATUS.FORBIDDEN
+        );
       }
+
+      // Verify token hasn't expired
+      const expiresAt = new Date(sharedLink.expires_at);
+      if (expiresAt < new Date()) {
+        ctx.error("Token has expired", { expires_at: sharedLink.expires_at });
+        ctx.logError("Token has expired");
+        
+        // Update token status to expired
+        await supabase
+          .from("shared_links")
+          .update({ status: "expired" })
+          .eq("token", token);
+        
+        return createErrorResponse("Token has expired.", HTTP_STATUS.FORBIDDEN);
+      }
+
+      // Verify usage limits
+      if (sharedLink.current_uses >= sharedLink.max_uses) {
+        ctx.error("Token usage limit exceeded", {
+          current_uses: sharedLink.current_uses,
+          max_uses: sharedLink.max_uses,
+        });
+        ctx.logError("Token usage limit exceeded");
+        
+        // Update token status to used
+        await supabase
+          .from("shared_links")
+          .update({ status: "used" })
+          .eq("token", token);
+        
+        return createErrorResponse("Token usage limit exceeded.", HTTP_STATUS.FORBIDDEN);
+      }
+
+      // Verify inspection_id matches one of the linked inspections
+      const inspectionId = (payload as any).inspection_id;
+      const linkedInspections = sharedLink.shared_link_inspections || [];
+      const isInspectionLinked = linkedInspections.some(
+        (link: any) => link.inspection_id === inspectionId
+      );
+
+      if (!isInspectionLinked) {
+        ctx.error("Inspection not linked to this token", {
+          token_inspection_count: linkedInspections.length,
+          requested_inspection: inspectionId,
+        });
+        ctx.logError("Token does not have access to this inspection");
+        return createErrorResponse(
+          "This token does not have access to the requested inspection.",
+          HTTP_STATUS.FORBIDDEN
+        );
+      }
+
+      // Update token usage tracking
+      const updateData: any = {
+        current_uses: sharedLink.current_uses + 1,
+        last_accessed_at: new Date().toISOString(),
+      };
+
+      // Set first_accessed_at if this is the first use
+      if (!sharedLink.current_uses || sharedLink.current_uses === 0) {
+        updateData.first_accessed_at = new Date().toISOString();
+      }
+
+      // Update status to 'used' if this use reaches max_uses
+      if (sharedLink.current_uses + 1 >= sharedLink.max_uses) {
+        updateData.status = "used";
+      }
+
+      await supabase
+        .from("shared_links")
+        .update(updateData)
+        .eq("token", token);
 
       userId = sharedLink.created_by;
       ctx.setUser(userId);
-      ctx.info("Token authenticated successfully", { user_id: "[PRESENT]", source: "token" });
+      ctx.info("Token authenticated successfully", {
+        user_id: "[PRESENT]",
+        source: "token",
+        uses: `${sharedLink.current_uses + 1}/${sharedLink.max_uses}`,
+      });
     } else {
       // JWT-based authentication
       ctx.debug("Authenticating user from JWT");
