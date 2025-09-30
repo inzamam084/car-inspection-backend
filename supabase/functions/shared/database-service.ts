@@ -60,6 +60,99 @@ export class DatabaseService {
     return { data, error };
   }
 
+  // -------------------- TOKEN AUTHENTICATION --------------------
+  async authenticateWithToken(
+    token: string,
+    inspectionId?: string
+  ): Promise<{
+    userId: string | null;
+    error: string | null;
+  }> {
+    try {
+      // const supabase = createClient(
+      //   Deno.env.get("SUPABASE_URL") ?? "",
+      //   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      // );
+      // Query shared_links and join with shared_link_inspections
+      const { data: sharedLink, error: tokenError } = await this.client
+        .from("shared_links")
+        .select("*, shared_link_inspections(*)")
+        .eq("token", token)
+        .single();
+
+      console.log("Shared Link Data:", sharedLink);
+
+      if (tokenError || !sharedLink) {
+        return { userId: null, error: "Invalid or expired token." };
+      }
+
+      // Verify token status is active
+      if (sharedLink.status !== "active") {
+        return {
+          userId: null,
+          error: `Token is ${sharedLink.status}. Please request a new link.`,
+        };
+      }
+
+      // Verify token hasn't expired
+      const expiresAt = new Date(sharedLink.expires_at);
+      if (expiresAt < new Date()) {
+        await this.client
+          .from("shared_links")
+          .update({ status: "expired" })
+          .eq("token", token);
+
+        return { userId: null, error: "Token has expired." };
+      }
+
+      // Verify usage limits
+      if (sharedLink.current_uses >= sharedLink.max_uses) {
+        await this.client
+          .from("shared_links")
+          .update({ status: "used" })
+          .eq("token", token);
+
+        return { userId: null, error: "Token usage limit exceeded." };
+      }
+
+      // Verify inspection_id if provided
+      if (inspectionId) {
+        const linkedInspections = sharedLink.shared_link_inspections || [];
+        const isInspectionLinked = linkedInspections.some(
+          (link: any) => link.inspection_id === inspectionId
+        );
+        if (!isInspectionLinked) {
+          return {
+            userId: null,
+            error:
+              "This token does not have access to the requested inspection.",
+          };
+        }
+      }
+
+      // Update usage tracking
+      const updateData: any = {
+        current_uses: sharedLink.current_uses + 1,
+        last_accessed_at: new Date().toISOString(),
+      };
+      if (!sharedLink.current_uses || sharedLink.current_uses === 0) {
+        updateData.first_accessed_at = new Date().toISOString();
+      }
+      if (sharedLink.current_uses + 1 >= sharedLink.max_uses) {
+        updateData.status = "used";
+      }
+      await this.client
+        .from("shared_links")
+        .update(updateData)
+        .eq("token", token);
+
+      return { userId: sharedLink.created_by, error: null };
+    } catch (error) {
+      console.error("Token authentication error:", error);
+      return { userId: null, error: "Token authentication failed." };
+    }
+  }
+
   // Batch create processing jobs
   async batchCreateProcessingJobs(jobs: any[]) {
     const { data, error } = await this.client

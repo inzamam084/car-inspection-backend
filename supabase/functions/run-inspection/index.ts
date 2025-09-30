@@ -1,6 +1,9 @@
 import { serve, ConnInfo } from "https://deno.land/std@0.168.0/http/server.ts";
 import { withSubscriptionCheck } from "../shared/subscription-middleware.ts";
-import { authenticateUser } from "../shared/database-service.ts";
+import {
+  authenticateUser,
+  createDatabaseService,
+} from "../shared/database-service.ts";
 import {
   parseRequestBody,
   createErrorResponse,
@@ -72,10 +75,21 @@ async function callRunInspectionOldAPI(
   }
 }
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
 // --- Main Server ---
 serve(async (req: Request, connInfo: ConnInfo) => {
   const ctx = new RequestContext();
   const { remoteAddr } = connInfo;
+
+  // Handle CORS preflight requests
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
 
   ctx.info("Request received", {
     url: req.url,
@@ -91,35 +105,58 @@ serve(async (req: Request, connInfo: ConnInfo) => {
     ctx.debug("Request body parsed successfully", {
       payload_type: typeof payload,
       has_inspection_id: "inspection_id" in (payload as any),
+      has_token: "token" in (payload as any),
       has_vehicle_data:
         "vehicleData" in (payload as any) ||
         "gallery_images" in (payload as any),
     });
 
-    // 2. Authenticate User from JWT
-    ctx.debug("Authenticating user from JWT");
-    const { user, error: authError } = await authenticateUser(req);
-    if (authError || !user) {
-      ctx.warn(
-        "Authentication failed, calling run-inspection-old API",
-        authError
-      );
-      //       ctx.error("Authentication failed", authError);
-      // ctx.logError("Authentication required");
-      // return createErrorResponse(
-      //   "Authentication required.",
-      //   HTTP_STATUS.UNAUTHORIZED
-      // );
+    // 2. Authenticate User from JWT or Token
+    let userId: string;
+    const token = (payload as any).token;
 
-      // Fallback to run-inspection-old API when token is not available
-      return await callRunInspectionOldAPI(payload, ctx);
+    const db = createDatabaseService();
+
+    if (token) {
+      // Token-based authentication
+      const { userId: user_id, error } = await db.authenticateWithToken(
+        token,
+        (payload as any).inspection_id
+      );
+      if (error || !user_id) {
+        return createErrorResponse(
+          error || "Invalid token.",
+          HTTP_STATUS.FORBIDDEN
+        );
+      }
+      ctx.setUser(user_id);
+      ctx.info("Token authenticated successfully", {
+        user_id: "[PRESENT]",
+        source: "token",
+      });
+      userId = user_id;
+    } else {
+      // JWT-based authentication
+      ctx.debug("Authenticating user from JWT");
+      const { user, error: authError } = await authenticateUser(req);
+      if (authError || !user) {
+        ctx.warn(
+          "Authentication failed, calling run-inspection-old API",
+          authError
+        );
+        return await callRunInspectionOldAPI(payload, ctx);
+      }
+      userId = user.id;
+      ctx.setUser(userId);
+      ctx.info("User authenticated successfully", {
+        user_id: "[PRESENT]",
+        source: "jwt",
+      });
     }
-    ctx.setUser(user.id);
-    ctx.info("User authenticated successfully", { user_id: "[PRESENT]" });
 
     // 3. Perform Subscription and Usage Check
     ctx.debug("Performing subscription and usage check");
-    const subscriptionCheck = await withSubscriptionCheck(user.id, {
+    const subscriptionCheck = await withSubscriptionCheck(userId, {
       requireSubscription: true,
       checkUsageLimit: true,
       incrementUsage: true,
@@ -149,12 +186,28 @@ serve(async (req: Request, connInfo: ConnInfo) => {
     ctx.debug("Routing request to handler");
     const response = await routeRequest(payload, ctx);
     ctx.logSuccess({ status: response.status });
-    return response;
+
+    // Add CORS headers to response
+    const headers = new Headers(response.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    headers.set(
+      "Access-Control-Allow-Headers",
+      "authorization, x-client-info, apikey, content-type"
+    );
+
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   } catch (error) {
     ctx.error("Unhandled error in request pipeline", {
       error: (error as Error).message,
       stack: (error as Error).stack,
     });
+
+    let errorResponse: Response;
 
     // Respond to known parsing/validation errors with 400
     if (
@@ -162,16 +215,32 @@ serve(async (req: Request, connInfo: ConnInfo) => {
       (error as Error).message.includes("Invalid JSON")
     ) {
       ctx.logError((error as Error).message);
-      return createErrorResponse(
+      errorResponse = createErrorResponse(
         (error as Error).message,
         HTTP_STATUS.BAD_REQUEST
       );
+    } else {
+      // Generic fallback for all other unexpected errors
+      ctx.logError("Internal server error");
+      errorResponse = createErrorResponse(
+        "Internal server error.",
+        HTTP_STATUS.INTERNAL_SERVER_ERROR
+      );
     }
-    // Generic fallback for all other unexpected errors
-    ctx.logError("Internal server error");
-    return createErrorResponse(
-      "Internal server error.",
-      HTTP_STATUS.INTERNAL_SERVER_ERROR
+
+    // Add CORS headers to error response
+    const headers = new Headers(errorResponse.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    headers.set(
+      "Access-Control-Allow-Headers",
+      "authorization, x-client-info, apikey, content-type"
     );
+
+    return new Response(errorResponse.body, {
+      status: errorResponse.status,
+      statusText: errorResponse.statusText,
+      headers,
+    });
   }
 });
