@@ -76,7 +76,7 @@ export class DatabaseService {
       // Query shared_links and join with shared_link_inspections
       const { data: sharedLink, error: tokenError } = await supabase
         .from("shared_links")
-        .select("*")
+        .select("*, shared_link_inspections!inner(inspection_id)")
         .eq("token", token);
       // .single();
 
