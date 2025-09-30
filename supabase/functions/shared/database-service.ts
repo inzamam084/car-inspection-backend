@@ -74,18 +74,16 @@ export class DatabaseService {
         .from("shared_links")
         .select(
           `
-          created_by,
-          status,
-          expires_at,
-          max_uses,
-          current_uses,
+          *,
           shared_link_inspections!inner(
             inspection_id
           )
         `
         )
         .eq("token", token)
-        .single();
+        // .single();
+
+      console.log("Shared Link Data:", sharedLink);
 
       if (tokenError || !sharedLink) {
         return { userId: null, error: "Invalid or expired token." };
