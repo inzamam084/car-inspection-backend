@@ -69,16 +69,16 @@ export class DatabaseService {
     error: string | null;
   }> {
     try {
-      const supabase = createClient(
-        Deno.env.get("SUPABASE_URL") ?? "",
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-      );
+      // const supabase = createClient(
+      //   Deno.env.get("SUPABASE_URL") ?? "",
+      //   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      // );
       // Query shared_links and join with shared_link_inspections
-      const { data: sharedLink, error: tokenError } = await supabase
+      const { data: sharedLink, error: tokenError } = await this.client
         .from("shared_links")
         .select("*, shared_link_inspections(*)")
-        .eq("token", token);
-      // .single();
+        .eq("token", token)
+        .single();
 
       console.log("Shared Link Data:", sharedLink);
 
