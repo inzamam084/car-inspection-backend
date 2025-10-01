@@ -1,5 +1,5 @@
 -- Migration: Create plan_features table
--- Description: Store plan features as separate rows instead of JSONB for better flexibility and scalability
+-- Description: Store plan features as separate rows instead of JSONB for better flexibility
 
 CREATE TABLE public.plan_features (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
