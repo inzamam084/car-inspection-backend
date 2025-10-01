@@ -14,6 +14,8 @@ CREATE TABLE public.plans (
     stripe_price_id_monthly TEXT,
     stripe_price_id_annual TEXT,
     is_active BOOLEAN NOT NULL DEFAULT true,
+    display_order INTEGER DEFAULT 0,
+    is_popular BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 
