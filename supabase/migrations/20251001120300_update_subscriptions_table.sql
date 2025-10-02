@@ -71,9 +71,6 @@ ALTER TABLE public.subscriptions
 -- Make plan_id required
 ALTER TABLE public.subscriptions ALTER COLUMN plan_id SET NOT NULL;
 
--- Rename/update existing columns if needed
-ALTER TABLE public.subscriptions RENAME COLUMN current_period_end TO current_period_end;
-
 -- Remove cancel_at_period_end if it exists (business logic: cancel only after billing month completes)
 -- This will be handled in application logic through Stripe
 ALTER TABLE public.subscriptions DROP COLUMN IF EXISTS cancel_at_period_end;
