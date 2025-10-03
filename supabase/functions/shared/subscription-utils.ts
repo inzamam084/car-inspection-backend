@@ -1,17 +1,18 @@
 /**
  * Subscription Utilities - Updated for New Database Schema
- *
+ * 
  * This module provides utilities for checking subscription access and managing
  * report usage with the new billing system that includes:
  * - Subscription-based reports (resets monthly)
  * - Pre-purchased report blocks (90-day expiry, FIFO usage)
  * - Proper usage tracking in report_usage table
- *
+ * 
  * Key Changes:
  * - Plans now loaded from database instead of hardcoded
  * - Usage deduction follows priority: subscription → blocks → pay-per-report
  * - Blocks expire 90 days from purchase and use FIFO ordering
  * - Usage tracked per report for auditing and billing
+ * - Direct Supabase queries instead of RPC functions
  */
 
 import {
@@ -38,8 +39,7 @@ export async function getActivePlans(): Promise<PlanWithFeatures[]> {
   try {
     const { data: plans, error: plansError } = await supabase
       .from("plans")
-      .select(
-        `
+      .select(`
         *,
         features:plan_features(
           id,
@@ -49,8 +49,7 @@ export async function getActivePlans(): Promise<PlanWithFeatures[]> {
           created_at,
           updated_at
         )
-      `
-      )
+      `)
       .eq("is_active", true)
       .order("display_order", { ascending: true });
 
@@ -143,29 +142,98 @@ export async function getSubscriptionStatus(
 
 /**
  * Check user's available reports across subscription and blocks
- * Uses the database RPC function for accurate counting
+ * Direct Supabase implementation without RPC
  */
 export async function getUserAvailableReports(
   userId: string
 ): Promise<AvailableReportsResult> {
   try {
-    const { data, error } = await supabase.rpc("get_user_available_reports", {
-      p_user_id: userId,
-    });
+    let subscriptionAvailable = 0;
+    let blocksAvailable = 0;
+    let activeSubscriptionId: string | null = null;
+    let activeBlocks: any[] = [];
 
-    if (error) {
-      console.error("Error getting available reports:", error);
-      return {
-        total_available: 0,
-        subscription_available: 0,
-        blocks_available: 0,
-        active_subscription_id: null,
-        active_blocks: [],
-      };
+    // Step 1: Get active subscription with plan details
+    const { data: subscriptionData, error: subError } = await supabase
+      .from("subscriptions")
+      .select(`
+        id,
+        current_period_start,
+        current_period_end,
+        plan:plans!inner(included_reports)
+      `)
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .gte("current_period_end", new Date().toISOString())
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!subError && subscriptionData) {
+      activeSubscriptionId = subscriptionData.id;
+      const reportsIncluded = subscriptionData.plan.included_reports;
+      const billingPeriodStart = new Date(subscriptionData.current_period_start)
+        .toISOString()
+        .split("T")[0];
+      const billingPeriodEnd = new Date(subscriptionData.current_period_end)
+        .toISOString()
+        .split("T")[0];
+
+      // Get usage summary for current period
+      const { data: usageSummary, error: summaryError } = await supabase
+        .from("subscription_usage_summary")
+        .select("reports_used")
+        .eq("subscription_id", activeSubscriptionId)
+        .eq("billing_period_start", billingPeriodStart)
+        .eq("billing_period_end", billingPeriodEnd)
+        .single();
+
+      const reportsUsed = usageSummary?.reports_used || 0;
+      subscriptionAvailable = Math.max(0, reportsIncluded - reportsUsed);
     }
 
-    // RPC returns array with single row
-    return data[0] as AvailableReportsResult;
+    // Step 2: Get active report blocks
+    const { data: blocks, error: blocksError } = await supabase
+      .from("report_blocks")
+      .select(`
+        id,
+        reports_total,
+        reports_used,
+        expiry_date,
+        report_block_type:report_block_types!inner(with_history)
+      `)
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .lt("reports_used", supabase.raw("reports_total"))
+      .gt("expiry_date", new Date().toISOString())
+      .order("expiry_date", { ascending: true }); // FIFO ordering
+
+    if (!blocksError && blocks && blocks.length > 0) {
+      // Calculate total blocks available
+      blocksAvailable = blocks.reduce(
+        (sum, block) => sum + (block.reports_total - block.reports_used),
+        0
+      );
+
+      // Build active blocks array with remaining reports
+      activeBlocks = blocks
+        .filter((block) => block.reports_total - block.reports_used > 0)
+        .map((block) => ({
+          id: block.id,
+          reports_remaining: block.reports_total - block.reports_used,
+          expiry_date: block.expiry_date,
+          with_history: block.report_block_type.with_history,
+        }));
+    }
+
+    // Step 3: Return combined results
+    return {
+      total_available: subscriptionAvailable + blocksAvailable,
+      subscription_available: subscriptionAvailable,
+      blocks_available: blocksAvailable,
+      active_subscription_id: activeSubscriptionId,
+      active_blocks: activeBlocks,
+    };
   } catch (error) {
     console.error("Error checking available reports:", error);
     return {
@@ -248,16 +316,16 @@ export async function checkSubscriptionAccess(
 
 /**
  * Record report usage - Direct Supabase implementation of the RPC logic
- *
+ * 
  * This function:
  * 1. Checks if report already tracked (prevent duplicates)
  * 2. Tries to deduct from active subscription first
  * 3. Falls back to oldest expiring report block (FIFO)
  * 4. Creates report_usage record with proper tracking
  * 5. Updates usage counters (subscription_usage_summary or report_blocks)
- *
+ * 
  * Deduction priority: subscription → blocks (FIFO by expiry) → fail
- *
+ * 
  * @param userId - User creating the report
  * @param inspectionId - Inspection being reported
  * @param reportId - Report ID (must already exist)
@@ -290,14 +358,12 @@ export async function recordReportUsage(
     // Step 2: Try to get active subscription
     const { data: subscriptionData, error: subError } = await supabase
       .from("subscriptions")
-      .select(
-        `
+      .select(`
         id,
         current_period_start,
         current_period_end,
         plan:plans(included_reports)
-      `
-      )
+      `)
       .eq("user_id", userId)
       .eq("status", "active")
       .gte("current_period_end", new Date().toISOString())
@@ -403,14 +469,12 @@ export async function recordReportUsage(
     // Step 4: Try to use report block (oldest expiring first - FIFO)
     const { data: reportBlock, error: blockError } = await supabase
       .from("report_blocks")
-      .select(
-        `
+      .select(`
         id,
         reports_total,
         reports_used,
         report_block_type:report_block_types(with_history)
-      `
-      )
+      `)
       .eq("user_id", userId)
       .eq("is_active", true)
       .lt("reports_used", supabase.raw("reports_total"))
@@ -428,14 +492,12 @@ export async function recordReportUsage(
         // Try to find another block or fail
         const { data: historyBlock, error: historyBlockError } = await supabase
           .from("report_blocks")
-          .select(
-            `
+          .select(`
             id,
             reports_total,
             reports_used,
             report_block_type:report_block_types(with_history)
-          `
-          )
+          `)
           .eq("user_id", userId)
           .eq("is_active", true)
           .lt("reports_used", supabase.raw("reports_total"))
@@ -609,16 +671,14 @@ export async function getActiveReportBlocks(
   try {
     const { data: blocks, error } = await supabase
       .from("report_blocks")
-      .select(
-        `
+      .select(`
         *,
         report_block_type:report_block_types(
           block_size,
           with_history,
           price
         )
-      `
-      )
+      `)
       .eq("user_id", userId)
       .eq("is_active", true)
       .lt("reports_used", supabase.raw("reports_total"))
@@ -684,12 +744,10 @@ export async function getSubscriptionWithPlan(
   try {
     const { data: subscription, error: subError } = await supabase
       .from("subscriptions")
-      .select(
-        `
+      .select(`
         *,
         plan:plans(*)
-      `
-      )
+      `)
       .eq("user_id", userId)
       .eq("status", "active")
       .single();
@@ -741,7 +799,7 @@ export async function createPlaceholderReport(
 /**
  * Legacy function for backward compatibility
  * Wraps new recordReportUsage function
- *
+ * 
  * @deprecated Use recordReportUsage instead for better control
  */
 export async function incrementUsage(
@@ -776,12 +834,7 @@ export async function incrementUsage(
     }
 
     // Record usage using new system
-    const result = await recordReportUsage(
-      userId,
-      inspectionId,
-      reportId,
-      false
-    );
+    const result = await recordReportUsage(userId, inspectionId, reportId, false);
 
     if (!result.success) {
       return {
@@ -820,13 +873,11 @@ export async function getReportUsageHistory(
   try {
     const { data: usageHistory, error } = await supabase
       .from("report_usage")
-      .select(
-        `
+      .select(`
         *,
         inspection:inspections(id, vin, status),
         report:reports(id, summary)
-      `
-      )
+      `)
       .eq("user_id", userId)
       .order("usage_date", { ascending: false })
       .limit(limit);
@@ -861,7 +912,8 @@ export async function willSubscriptionRenew(
     }
 
     return (
-      subscription.status === "active" && !subscription.cancel_at_period_end
+      subscription.status === "active" &&
+      !subscription.cancel_at_period_end
     );
   } catch (error) {
     console.error("Error checking subscription renewal:", error);
