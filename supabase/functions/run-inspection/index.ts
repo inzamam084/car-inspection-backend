@@ -154,34 +154,6 @@ serve(async (req: Request, connInfo: ConnInfo) => {
       });
     }
 
-    // 3. Perform Subscription and Usage Check
-    ctx.debug("Performing subscription and usage check");
-    const subscriptionCheck = await withSubscriptionCheck(userId, {
-      requireSubscription: true,
-      checkUsageLimit: true,
-      incrementUsage: true,
-    });
-    if (!subscriptionCheck.success) {
-      ctx.error("Subscription check failed", {
-        user_id: "[PRESENT]",
-        error: subscriptionCheck.error,
-        code: subscriptionCheck.code,
-      });
-      const status = getStatusForSubscriptionError(subscriptionCheck.code);
-      ctx.logError(subscriptionCheck.error || "Subscription validation failed");
-      return createErrorResponse(
-        subscriptionCheck.error || "Subscription validation failed.",
-        status
-      );
-    }
-    ctx.info("Subscription check passed", {
-      remaining_reports: subscriptionCheck.remainingReports,
-    });
-
-    ctx.info("Payload ", payload);
-
-    // return;
-
     // 4. Route to the correct business logic handler
     ctx.debug("Routing request to handler");
     const response = await routeRequest(payload, ctx);
