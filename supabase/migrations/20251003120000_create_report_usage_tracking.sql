@@ -28,20 +28,20 @@ CREATE TABLE public.report_usage (
         usage_type IN ('subscription_included', 'block', 'pay_per_report', 'free_trial')
     ),
     
-    -- Ensure one report is only tracked once
-    -- CONSTRAINT report_usage_unique_report UNIQUE (report_id),
+    -- ⭐ CRITICAL: Ensure one report is only tracked once (prevents double-charging)
+    CONSTRAINT report_usage_unique_report UNIQUE (report_id),
     
-    -- If usage_type is 'subscription_included', subscription_id must be set
-    -- CONSTRAINT report_usage_subscription_logic CHECK (
-    --     (usage_type = 'subscription_included' AND subscription_id IS NOT NULL) OR
-    --     (usage_type != 'subscription_included')
-    -- ),
+    -- ⭐ CRITICAL: If usage_type is 'subscription_included', subscription_id must be set
+    CONSTRAINT report_usage_subscription_logic CHECK (
+        (usage_type = 'subscription_included' AND subscription_id IS NOT NULL) OR
+        (usage_type != 'subscription_included')
+    ),
     
-    -- If usage_type is 'block', report_block_id must be set
-    -- CONSTRAINT report_usage_block_logic CHECK (
-    --     (usage_type = 'block' AND report_block_id IS NOT NULL) OR
-    --     (usage_type != 'block')
-    -- )
+    -- ⭐ CRITICAL: If usage_type is 'block', report_block_id must be set
+    CONSTRAINT report_usage_block_logic CHECK (
+        (usage_type = 'block' AND report_block_id IS NOT NULL) OR
+        (usage_type != 'block')
+    )
 );
 
 -- Create indexes for better performance
@@ -419,13 +419,13 @@ CREATE TRIGGER update_subscription_usage_summary_updated_at
 --     $$SELECT public.reset_subscription_usage();$$
 -- );
 
--- -- ============================================================================
--- -- 7. Grant permissions
--- -- ============================================================================
--- GRANT SELECT ON TABLE public.report_usage TO authenticated;
--- GRANT SELECT ON TABLE public.subscription_usage_summary TO authenticated;
--- GRANT ALL ON TABLE public.report_usage TO service_role;
--- GRANT ALL ON TABLE public.subscription_usage_summary TO service_role;
+-- ============================================================================
+-- 7. Grant permissions
+-- ============================================================================
+GRANT SELECT ON TABLE public.report_usage TO authenticated;
+GRANT SELECT ON TABLE public.subscription_usage_summary TO authenticated;
+GRANT ALL ON TABLE public.report_usage TO service_role;
+GRANT ALL ON TABLE public.subscription_usage_summary TO service_role;
 
 -- GRANT EXECUTE ON FUNCTION public.get_user_available_reports(UUID) TO authenticated;
 -- GRANT EXECUTE ON FUNCTION public.get_user_available_reports(UUID) TO service_role;
@@ -433,41 +433,41 @@ CREATE TRIGGER update_subscription_usage_summary_updated_at
 -- GRANT EXECUTE ON FUNCTION public.record_report_usage(UUID, UUID, UUID, BOOLEAN) TO service_role;
 -- GRANT EXECUTE ON FUNCTION public.reset_subscription_usage() TO service_role;
 
--- -- ============================================================================
--- -- 8. Enable RLS
--- -- ============================================================================
--- ALTER TABLE public.report_usage ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE public.subscription_usage_summary ENABLE ROW LEVEL SECURITY;
+-- ============================================================================
+-- 8. Enable RLS
+-- ============================================================================
+ALTER TABLE public.report_usage ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subscription_usage_summary ENABLE ROW LEVEL SECURITY;
 
--- -- RLS Policies for report_usage
--- CREATE POLICY "Users can view own report usage"
--- ON public.report_usage
--- FOR SELECT
--- USING (auth.uid() = user_id);
+-- RLS Policies for report_usage
+CREATE POLICY "Users can view own report usage"
+ON public.report_usage
+FOR SELECT
+USING (auth.uid() = user_id);
 
--- CREATE POLICY "Service role full access to report usage"
--- ON public.report_usage
--- FOR ALL
--- USING (true)
--- WITH CHECK (true);
+CREATE POLICY "Service role full access to report usage"
+ON public.report_usage
+FOR ALL
+USING (true)
+WITH CHECK (true);
 
--- -- RLS Policies for subscription_usage_summary
--- CREATE POLICY "Users can view own subscription usage summary"
--- ON public.subscription_usage_summary
--- FOR SELECT
--- USING (
---     EXISTS (
---         SELECT 1 FROM public.subscriptions
---         WHERE subscriptions.id = subscription_usage_summary.subscription_id
---         AND subscriptions.user_id = auth.uid()
---     )
--- );
+-- RLS Policies for subscription_usage_summary
+CREATE POLICY "Users can view own subscription usage summary"
+ON public.subscription_usage_summary
+FOR SELECT
+USING (
+    EXISTS (
+        SELECT 1 FROM public.subscriptions
+        WHERE subscriptions.id = subscription_usage_summary.subscription_id
+        AND subscriptions.user_id = auth.uid()
+    )
+);
 
--- CREATE POLICY "Service role full access to subscription usage summary"
--- ON public.subscription_usage_summary
--- FOR ALL
--- USING (true)
--- WITH CHECK (true);
+CREATE POLICY "Service role full access to subscription usage summary"
+ON public.subscription_usage_summary
+FOR ALL
+USING (true)
+WITH CHECK (true);
 
 -- ============================================================================
 -- 9. Add helpful comments
