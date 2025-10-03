@@ -192,8 +192,8 @@ export async function getUserAvailableReports(
       subscriptionAvailable = Math.max(0, reportsIncluded - reportsUsed);
     }
 
-    // Step 2: Get active report blocks
-    const { data: blocks, error: blocksError } = await supabase
+    // Step 2: Get active report blocks (fetch all and filter in memory)
+    const { data: allBlocks, error: blocksError } = await supabase
       .from("report_blocks")
       .select(`
         id,
@@ -204,26 +204,30 @@ export async function getUserAvailableReports(
       `)
       .eq("user_id", userId)
       .eq("is_active", true)
-      .lt("reports_used", supabase.raw("reports_total"))
       .gt("expiry_date", new Date().toISOString())
       .order("expiry_date", { ascending: true }); // FIFO ordering
 
-    if (!blocksError && blocks && blocks.length > 0) {
-      // Calculate total blocks available
-      blocksAvailable = blocks.reduce(
-        (sum, block) => sum + (block.reports_total - block.reports_used),
-        0
+    if (!blocksError && allBlocks && allBlocks.length > 0) {
+      // Filter blocks where reports_used < reports_total
+      const blocks = allBlocks.filter(
+        (block: any) => block.reports_used < block.reports_total
       );
 
-      // Build active blocks array with remaining reports
-      activeBlocks = blocks
-        .filter((block) => block.reports_total - block.reports_used > 0)
-        .map((block) => ({
+      if (blocks.length > 0) {
+        // Calculate total blocks available
+        blocksAvailable = blocks.reduce(
+          (sum: any, block: any) => sum + (block.reports_total - block.reports_used),
+          0
+        );
+
+        // Build active blocks array with remaining reports
+        activeBlocks = blocks.map((block: any) => ({
           id: block.id,
           reports_remaining: block.reports_total - block.reports_used,
           expiry_date: block.expiry_date,
           with_history: block.report_block_type.with_history,
         }));
+      }
     }
 
     // Step 3: Return combined results
@@ -344,7 +348,7 @@ export async function recordReportUsage(
       .from("report_usage")
       .select("id")
       .eq("report_id", reportId)
-      .single();
+      .maybeSingle();
 
     if (existingUsage) {
       return {
@@ -369,7 +373,7 @@ export async function recordReportUsage(
       .gte("current_period_end", new Date().toISOString())
       .order("created_at", { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     // Step 3: If active subscription exists, try to use it
     if (!subError && subscriptionData) {
@@ -389,11 +393,11 @@ export async function recordReportUsage(
         .eq("subscription_id", subscriptionId)
         .eq("billing_period_start", billingPeriodStart)
         .eq("billing_period_end", billingPeriodEnd)
-        .single();
+        .maybeSingle();
 
       let reportsUsed = 0;
 
-      if (summaryError) {
+      if (summaryError || !usageSummary) {
         // Create new summary if doesn't exist
         const { error: insertError } = await supabase
           .from("subscription_usage_summary")
@@ -467,7 +471,8 @@ export async function recordReportUsage(
     }
 
     // Step 4: Try to use report block (oldest expiring first - FIFO)
-    const { data: reportBlock, error: blockError } = await supabase
+    // Fetch all blocks and filter in memory
+    const { data: allBlocks, error: blockError } = await supabase
       .from("report_blocks")
       .select(`
         id,
@@ -477,54 +482,45 @@ export async function recordReportUsage(
       `)
       .eq("user_id", userId)
       .eq("is_active", true)
-      .lt("reports_used", supabase.raw("reports_total"))
       .gt("expiry_date", new Date().toISOString())
       .order("expiry_date", { ascending: true }) // FIFO - oldest expiring first
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .single();
+      .order("created_at", { ascending: true });
 
-    if (!blockError && reportBlock) {
-      // Check if block supports history if needed
-      const blockSupportsHistory = reportBlock.report_block_type.with_history;
-      if (hadHistory && !blockSupportsHistory) {
-        // This block doesn't support history, but user needs it
-        // Try to find another block or fail
-        const { data: historyBlock, error: historyBlockError } = await supabase
-          .from("report_blocks")
-          .select(`
-            id,
-            reports_total,
-            reports_used,
-            report_block_type:report_block_types(with_history)
-          `)
-          .eq("user_id", userId)
-          .eq("is_active", true)
-          .lt("reports_used", supabase.raw("reports_total"))
-          .gt("expiry_date", new Date().toISOString())
-          .eq("report_block_types.with_history", true)
-          .order("expiry_date", { ascending: true })
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .single();
+    if (!blockError && allBlocks && allBlocks.length > 0) {
+      // Filter blocks where reports_used < reports_total
+      const availableBlocks = allBlocks.filter(
+        (block: any) => block.reports_used < block.reports_total
+      );
 
-        if (historyBlockError || !historyBlock) {
-          return {
-            success: false,
-            usage_type: "insufficient",
-            message: "No available report blocks with history support",
-            remaining_reports: 0,
-          };
+      if (availableBlocks.length > 0) {
+        // Find suitable block (check history support if needed)
+        let reportBlock = availableBlocks[0];
+
+        if (hadHistory) {
+          // Find block that supports history
+          const historyBlock = availableBlocks.find(
+            (block) => block.report_block_type.with_history
+          );
+
+          if (!historyBlock) {
+            return {
+              success: false,
+              usage_type: "insufficient",
+              message: "No available report blocks with history support",
+              remaining_reports: 0,
+            };
+          }
+
+          reportBlock = historyBlock;
         }
 
-        // Use the history-enabled block instead
-        const blockId = historyBlock.id;
+        const blockId = reportBlock.id;
 
         // Update block usage
         const { error: updateBlockError } = await supabase
           .from("report_blocks")
           .update({
-            reports_used: historyBlock.reports_used + 1,
+            reports_used: reportBlock.reports_used + 1,
             updated_at: new Date().toISOString(),
           })
           .eq("id", blockId);
@@ -556,22 +552,12 @@ export async function recordReportUsage(
           };
         }
 
-        // Calculate remaining from all blocks
-        const { data: remainingData } = await supabase
-          .from("report_blocks")
-          .select("reports_total, reports_used")
-          .eq("user_id", userId)
-          .eq("is_active", true)
-          .lt("reports_used", supabase.raw("reports_total"))
-          .gt("expiry_date", new Date().toISOString());
-
-        const remaining = remainingData
-          ? remainingData.reduce(
-              (sum: any, block: any) =>
-                sum + (block.reports_total - block.reports_used),
-              0
-            )
-          : 0;
+        // Calculate remaining from all blocks (recalculate after update)
+        const remaining = availableBlocks.reduce((sum, block) => {
+          const isUpdatedBlock = block.id === blockId;
+          const used = isUpdatedBlock ? block.reports_used + 1 : block.reports_used;
+          return sum + (block.reports_total - used);
+        }, 0);
 
         return {
           success: true,
@@ -580,67 +566,6 @@ export async function recordReportUsage(
           remaining_reports: remaining,
         };
       }
-
-      // Use the first available block (supports all report types or matches history requirement)
-      const blockId = reportBlock.id;
-
-      // Update block usage
-      const { error: updateBlockError } = await supabase
-        .from("report_blocks")
-        .update({
-          reports_used: reportBlock.reports_used + 1,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", blockId);
-
-      if (updateBlockError) {
-        console.error("Error updating block usage:", updateBlockError);
-      }
-
-      // Record usage
-      const { error: usageError } = await supabase.from("report_usage").insert({
-        user_id: userId,
-        inspection_id: inspectionId,
-        report_id: reportId,
-        usage_type: "block",
-        report_block_id: blockId,
-        had_history: hadHistory,
-        usage_date: new Date().toISOString(),
-      });
-
-      if (usageError) {
-        console.error("Error recording block usage:", usageError);
-        return {
-          success: false,
-          usage_type: "insufficient",
-          message: `Failed to record usage: ${usageError.message}`,
-          remaining_reports: 0,
-        };
-      }
-
-      // Calculate remaining from all blocks
-      const { data: remainingData } = await supabase
-        .from("report_blocks")
-        .select("reports_total, reports_used")
-        .eq("user_id", userId)
-        .eq("is_active", true)
-        .lt("reports_used", supabase.raw("reports_total"))
-        .gt("expiry_date", new Date().toISOString());
-
-      const remaining = remainingData
-        ? remainingData.reduce(
-            (sum: any, block: any) =>
-              sum + (block.reports_total - block.reports_used),
-            0
-          )
-        : 0;
-
-      return {
-        success: true,
-        usage_type: "block",
-        message: "Report deducted from block",
-        remaining_reports: remaining,
-      };
     }
 
     // Step 5: No available reports
@@ -669,7 +594,7 @@ export async function getActiveReportBlocks(
   userId: string
 ): Promise<ReportBlock[]> {
   try {
-    const { data: blocks, error } = await supabase
+    const { data: allBlocks, error } = await supabase
       .from("report_blocks")
       .select(`
         *,
@@ -681,7 +606,6 @@ export async function getActiveReportBlocks(
       `)
       .eq("user_id", userId)
       .eq("is_active", true)
-      .lt("reports_used", supabase.raw("reports_total"))
       .gt("expiry_date", new Date().toISOString())
       .order("expiry_date", { ascending: true }); // FIFO ordering
 
@@ -689,6 +613,11 @@ export async function getActiveReportBlocks(
       console.error("Error getting report blocks:", error);
       return [];
     }
+
+    // Filter blocks where reports_used < reports_total
+    const blocks = allBlocks?.filter(
+      (block) => block.reports_used < block.reports_total
+    ) || [];
 
     return blocks as ReportBlock[];
   } catch (error) {
@@ -712,9 +641,9 @@ export async function getCurrentUsageSummary(
       .eq("subscription_id", subscriptionId)
       .lte("billing_period_start", today)
       .gte("billing_period_end", today)
-      .single();
+      .maybeSingle();
 
-    if (error) {
+    if (error || !summary) {
       console.error("Error getting usage summary:", error);
       return null;
     }
@@ -750,7 +679,7 @@ export async function getSubscriptionWithPlan(
       `)
       .eq("user_id", userId)
       .eq("status", "active")
-      .single();
+      .maybeSingle();
 
     if (subError || !subscription) {
       return null;
@@ -905,7 +834,7 @@ export async function willSubscriptionRenew(
       .from("subscriptions")
       .select("cancel_at_period_end, status")
       .eq("id", subscriptionId)
-      .single();
+      .maybeSingle();
 
     if (error || !subscription) {
       return false;
