@@ -24,9 +24,7 @@ DECLARE
     starter_plan_uuid UUID;
     pro_plan_uuid UUID;
     dealer_plan_uuid UUID;
-    old_starter_plan_uuid UUID;
-    old_pro_plan_uuid UUID;
-    old_elite_plan_uuid UUID;
+    dealer_plus_plan_uuid UUID;
 BEGIN
     -- Get UUIDs from plans table
     SELECT id INTO starter_plan_uuid FROM public.plans WHERE name = 'Starter';
