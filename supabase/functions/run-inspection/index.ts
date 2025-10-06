@@ -19,7 +19,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// --- Main Server --- 
+// --- Main Server ---
 serve(async (req: Request, connInfo: ConnInfo) => {
   const ctx = new RequestContext();
   const { remoteAddr } = connInfo;
