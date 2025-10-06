@@ -499,7 +499,7 @@ export async function recordReportUsage(
         if (hadHistory) {
           // Find block that supports history
           const historyBlock = availableBlocks.find(
-            (block) => block.report_block_type.with_history
+            (block: any) => block.report_block_type.with_history
           );
 
           if (!historyBlock) {
@@ -553,7 +553,7 @@ export async function recordReportUsage(
         }
 
         // Calculate remaining from all blocks (recalculate after update)
-        const remaining = availableBlocks.reduce((sum, block) => {
+        const remaining = availableBlocks.reduce((sum: any, block: any) => {
           const isUpdatedBlock = block.id === blockId;
           const used = isUpdatedBlock ? block.reports_used + 1 : block.reports_used;
           return sum + (block.reports_total - used);
@@ -616,7 +616,7 @@ export async function getActiveReportBlocks(
 
     // Filter blocks where reports_used < reports_total
     const blocks = allBlocks?.filter(
-      (block) => block.reports_used < block.reports_total
+      (block: any) => block.reports_used < block.reports_total
     ) || [];
 
     return blocks as ReportBlock[];
