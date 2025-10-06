@@ -134,6 +134,64 @@ export async function handleWebhookRequest(
 }
 
 /**
+ * Handles data submitted from the browser extension.
+ * @param payload The extension payload.
+ * @param ctx The request context for logging.
+ * @returns A Response object.
+ */
+export function handleExtensionRequest(
+  payload: any,
+  ctx: RequestContext
+): Promise<Response> {
+  ctx.setOperation("extension_processing");
+  ctx.info("Processing extension vehicle data");
+
+  // Support both wrapped format (`{ "vehicleData": {...} }`) and direct format (`{ "gallery_images": ... }`)
+  const vehicleData = "vehicleData" in payload ? payload.vehicleData : payload;
+
+  // Generate a temporary ID for immediate feedback to the client
+  const tempInspectionId = `temp-${Date.now()}-${Math.random()
+    .toString(36)
+    .substring(2, 11)}`;
+
+  ctx.debug("Extension data parsed", {
+    temp_inspection_id: tempInspectionId,
+    has_vehicle_data: !!vehicleData,
+    make: vehicleData?.make,
+    model: vehicleData?.model,
+    year: vehicleData?.year,
+    images_count: vehicleData?.gallery_images?.length || 0,
+  });
+
+  runInBackground(async () => {
+    const result = await processExtensionData(vehicleData, ctx);
+    if (!result.success) {
+      ctx.error("Extension processing failed in background", {
+        temp_inspection_id: tempInspectionId,
+        error: result.error,
+      });
+    } else {
+      ctx.info("Extension processing completed successfully in background", {
+        temp_inspection_id: tempInspectionId,
+        actual_inspection_id: result.inspectionId,
+      });
+    }
+  });
+
+  return Promise.resolve(
+    createJsonResponse(
+      {
+        success: true,
+        message: "Extension data processing started in background",
+        inspectionId: tempInspectionId,
+        status: "processing",
+      },
+      HTTP_STATUS.ACCEPTED
+    )
+  );
+}
+
+/**
  * Routes the request to the appropriate handler based on payload content.
  * @param payload The parsed request payload.
  * @param ctx The request context for logging.
@@ -172,7 +230,6 @@ export async function routeRequest(
     ctx.debug("Routing to extension handler");
 
     // Step 1: Pre-check subscription (without inspectionId yet)
-    ctx.info("Pre-checking subscription before processing");
     const preCheck = await withSubscriptionCheck(ctx.userId!, {
       requireSubscription: true,
       checkUsageLimit: true,
@@ -180,87 +237,46 @@ export async function routeRequest(
     });
 
     if (!preCheck.success) {
-      ctx.error("Subscription pre-check failed", {
-        error: preCheck.error,
-        code: preCheck.code,
-      });
       return createErrorResponse(
         preCheck.error || "Subscription validation failed.",
         getHttpStatusForSubscriptionError(preCheck.code)
       );
     }
 
-    ctx.info("Subscription pre-check passed, starting background processing");
+    // return Promise.resolve(handleExtensionRequest(payload, ctx));
+    // Step 2: Process extension data → creates inspection
+    const result = await processExtensionData(payload, ctx);
 
-    // Generate a temporary ID for immediate response to client
-    const tempInspectionId = `temp-${Date.now()}-${Math.random()
-      .toString(36)
-      .substring(2, 11)}`;
+    if (!result.success || !result.inspectionId) {
+      return createErrorResponse(
+        result.error || "Extension processing failed.",
+        HTTP_STATUS.INTERNAL_SERVER_ERROR
+      );
+    }
 
-    // Step 2: Run everything in background (create inspection, extract data, upload images, track usage, run analysis)
-    runInBackground(async () => {
-      try {
-        ctx.info("Background processing started", {
-          temp_inspection_id: tempInspectionId,
-        });
+    const inspectionId = result.inspectionId;
 
-        // Process extension data → creates inspection + extracts data + uploads images
-        const result = await processExtensionData(payload, ctx);
-
-        if (!result.success || !result.inspectionId) {
-          ctx.error("Extension processing failed in background", {
-            temp_inspection_id: tempInspectionId,
-            error: result.error,
-          });
-          return;
-        }
-
-        const inspectionId = result.inspectionId;
-        ctx.info("Extension processing completed, tracking usage", {
-          temp_inspection_id: tempInspectionId,
-          actual_inspection_id: inspectionId,
-        });
-
-        // Step 3: Track usage now WITH real inspectionId
-        const usageCheck = await withSubscriptionCheck(ctx.userId!, {
-          requireSubscription: true,
-          checkUsageLimit: true,
-          trackUsage: true,
-          inspectionId,
-          hadHistory: false,
-        });
-
-        if (!usageCheck.success) {
-          ctx.error("Usage tracking failed in background", {
-            inspection_id: inspectionId,
-            error: usageCheck.error,
-            code: usageCheck.code,
-          });
-          // Note: At this point, inspection is already created and processing started
-          // We log the error but don't fail the entire operation
-          return;
-        }
-
-        ctx.info("Usage tracked successfully", {
-          inspection_id: inspectionId,
-          remaining_reports: usageCheck.remainingReports,
-          usage_type: usageCheck.usageType,
-        });
-      } catch (error) {
-        ctx.error("Unexpected error in background processing", {
-          temp_inspection_id: tempInspectionId,
-          error: (error as Error).message,
-          stack: (error as Error).stack,
-        });
-      }
+    // Step 3: Track usage now WITH inspectionId
+    const usageCheck = await withSubscriptionCheck(ctx.userId!, {
+      requireSubscription: true,
+      checkUsageLimit: true,
+      trackUsage: true,
+      inspectionId,
+      hadHistory: false,
     });
 
-    // Step 4: Return immediate response to client
+    if (!usageCheck.success) {
+      return createErrorResponse(
+        usageCheck.error || "Failed to track usage.",
+        getHttpStatusForSubscriptionError(usageCheck.code)
+      );
+    }
+
     return createJsonResponse(
       {
         success: true,
         message: "Extension data processing started in background",
-        inspectionId: tempInspectionId,
+        inspectionId,
         status: "processing",
       },
       HTTP_STATUS.ACCEPTED
