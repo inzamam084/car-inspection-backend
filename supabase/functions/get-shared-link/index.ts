@@ -1,10 +1,11 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { Deno, serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
 
 interface SharedLinkData {
   id: string;
@@ -41,12 +42,14 @@ interface SharedLinkResponse {
   isInactive?: boolean;
 }
 
-async function getSharedLinkByToken(token: string): Promise<SharedLinkResponse> {
+async function getSharedLinkByToken(
+  token: string
+): Promise<SharedLinkResponse> {
   try {
     // Create Supabase admin client with service role key
     const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
     console.log("Fetching shared link for token:", token);
@@ -54,7 +57,8 @@ async function getSharedLinkByToken(token: string): Promise<SharedLinkResponse> 
     // Fetch shared link data with profile information
     const { data: sharedLink, error } = await supabase
       .from("shared_links")
-      .select(`
+      .select(
+        `
         *,
         profiles!shared_links_created_by_fkey (
           id,
@@ -62,13 +66,14 @@ async function getSharedLinkByToken(token: string): Promise<SharedLinkResponse> 
           first_name,
           last_name
         )
-      `)
+      `
+      )
       .eq("token", token)
       .single();
 
     if (error) {
       console.error("Error fetching shared link:", error);
-      
+
       // If no data found
       if (error.code === "PGRST116") {
         return {
@@ -76,7 +81,7 @@ async function getSharedLinkByToken(token: string): Promise<SharedLinkResponse> 
           error: "Shared link not found",
         };
       }
-      
+
       return {
         success: false,
         error: "Failed to fetch shared link data",
@@ -131,7 +136,7 @@ async function getSharedLinkByToken(token: string): Promise<SharedLinkResponse> 
       success: true,
       data: sharedLink,
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error in getSharedLinkByToken:", error);
     return {
       success: false,
@@ -140,27 +145,27 @@ async function getSharedLinkByToken(token: string): Promise<SharedLinkResponse> 
   }
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
   // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
     // Parse the request URL to get query parameters
     const url = new URL(req.url);
-    const token = url.searchParams.get('token');
+    const token = url.searchParams.get("token");
 
     if (!token) {
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           success: false,
-          error: 'Token parameter is required' 
+          error: "Token parameter is required",
         }),
         {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
           status: 400,
-        },
+        }
       );
     }
 
@@ -170,7 +175,7 @@ serve(async (req) => {
     // Determine HTTP status code based on result
     let statusCode = 200;
     if (!result.success) {
-      if (result.error === 'Shared link not found') {
+      if (result.error === "Shared link not found") {
         statusCode = 404;
       } else if (result.isExpired || result.isMaxedOut || result.isInactive) {
         statusCode = 403;
@@ -179,24 +184,21 @@ serve(async (req) => {
       }
     }
 
+    return new Response(JSON.stringify(result), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: statusCode,
+    });
+  } catch (error: any) {
+    console.error("Error in get-shared-link function:", error);
     return new Response(
-      JSON.stringify(result),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: statusCode,
-      },
-    );
-  } catch (error) {
-    console.error('Error in get-shared-link function:', error);
-    return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         success: false,
-        error: error.message || 'Internal server error',
+        error: error.message || "Internal server error",
       }),
       {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 500,
-      },
+      }
     );
   }
-})
+});

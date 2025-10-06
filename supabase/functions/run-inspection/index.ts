@@ -12,68 +12,6 @@ import {
 } from "./utils.ts";
 import { routeRequest } from "./handlers.ts";
 import { RequestContext } from "./logging.ts";
-import { SUPABASE_CONFIG } from "./config.ts";
-
-/**
- * Fallback function that calls the run-inspection-old API when token is not available
- */
-async function callRunInspectionOldAPI(
-  payload: any,
-  ctx: RequestContext
-): Promise<Response> {
-  try {
-    ctx.info("Token not available, calling run-inspection-old API");
-
-    // Make HTTP request to run-inspection-old function
-    const response = await fetch(
-      `${SUPABASE_CONFIG.url}/functions/v1/run-inspection-old`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
-        },
-        body: JSON.stringify(payload),
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      ctx.error("run-inspection-old API call failed", {
-        status: response.status,
-        status_text: response.statusText,
-        error_text: errorText,
-      });
-
-      return createErrorResponse(
-        `Fallback API call failed: ${response.statusText}`,
-        response.status
-      );
-    }
-
-    // Get the response data and forward it
-    const responseData = await response.json();
-    ctx.info("Successfully called run-inspection-old API", {
-      response_status: response.status,
-    });
-
-    return new Response(JSON.stringify(responseData), {
-      status: response.status,
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-  } catch (error) {
-    ctx.error("Error calling run-inspection-old API", {
-      error: (error as Error).message,
-    });
-
-    return createErrorResponse(
-      "Failed to call fallback API",
-      HTTP_STATUS.INTERNAL_SERVER_ERROR
-    );
-  }
-}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -140,11 +78,10 @@ serve(async (req: Request, connInfo: ConnInfo) => {
       ctx.debug("Authenticating user from JWT");
       const { user, error: authError } = await authenticateUser(req);
       if (authError || !user) {
-        ctx.warn(
-          "Authentication failed, calling run-inspection-old API",
-          authError
+        return createErrorResponse(
+          authError || "Authentication failed.",
+          HTTP_STATUS.UNAUTHORIZED
         );
-        return await callRunInspectionOldAPI(payload, ctx);
       }
       userId = user.id;
       ctx.setUser(userId);
@@ -153,34 +90,6 @@ serve(async (req: Request, connInfo: ConnInfo) => {
         source: "jwt",
       });
     }
-
-    // 3. Perform Subscription and Usage Check
-    ctx.debug("Performing subscription and usage check");
-    const subscriptionCheck = await withSubscriptionCheck(userId, {
-      requireSubscription: true,
-      checkUsageLimit: true,
-      incrementUsage: true,
-    });
-    if (!subscriptionCheck.success) {
-      ctx.error("Subscription check failed", {
-        user_id: "[PRESENT]",
-        error: subscriptionCheck.error,
-        code: subscriptionCheck.code,
-      });
-      const status = getStatusForSubscriptionError(subscriptionCheck.code);
-      ctx.logError(subscriptionCheck.error || "Subscription validation failed");
-      return createErrorResponse(
-        subscriptionCheck.error || "Subscription validation failed.",
-        status
-      );
-    }
-    ctx.info("Subscription check passed", {
-      remaining_reports: subscriptionCheck.remainingReports,
-    });
-
-    ctx.info("Payload ", payload);
-
-    // return;
 
     // 4. Route to the correct business logic handler
     ctx.debug("Routing request to handler");

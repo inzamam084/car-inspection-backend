@@ -1,168 +1,214 @@
-export interface SubscriptionPlan {
-  id: string;
+/**
+ * Subscription Types - Updated for New Database Schema
+ * 
+ * Changes from old schema:
+ * - Plans now stored in database, not hardcoded
+ * - Subscription tracking uses new report_usage system
+ * - Support for report blocks (pre-purchased reports)
+ * - Removed stripe_customer_id from subscriptions (now in profiles)
+ * - Added subscription_addons support
+ * - Added plan_id as UUID instead of string
+ */
+
+export interface Plan {
+  id: string; // UUID
   name: string;
-  description: string;
-  price: number;
-  interval: "month" | "year";
-  features: string[];
-  maxReports: number;
-  priority: "standard" | "priority" | "premium";
-  popular?: boolean;
-  stripePriceId: string;
-  annualPriceId?: string;
-  annualPrice?: number;
-}
-
-export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
-  {
-    id: "starter_plan",
-    name: "Starter",
-    description: "Essential auction insights for single-lot dealers",
-    price: 25,
-    interval: "month",
-    features: [
-      "100 VIN report credits / month (30-day rollover)",
-      "1 user seat",
-      "Chrome extension + PDF export",
-      "Community email support",
-      "Overage: $2.25 per extra report",
-    ],
-    maxReports: 100,
-    priority: "standard",
-    stripePriceId:
-      Deno.env.get("NEXT_PUBLIC_STRIPE_STARTER_MONTHLY_PRICE_ID") || "",
-    annualPriceId:
-      Deno.env.get("NEXT_PUBLIC_STRIPE_STARTER_ANNUAL_PRICE_ID") || "",
-    annualPrice: 1990,
-  },
-  {
-    id: "pro_plan",
-    name: "Pro",
-    description: "Built for franchise rooftops & high-turn independents",
-    price: 119,
-    interval: "month",
-    features: [
-      "350 VIN report credits / month (30-day rollover)",
-      "3 user seats (add'l seats $25/user)",
-      "Saved searches & batch VIN upload",
-      "Priority 1-hour chat support",
-      "Overage: $1.75 per extra report",
-    ],
-    maxReports: 350,
-    priority: "priority",
-    popular: true,
-    stripePriceId:
-      Deno.env.get("NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID") || "",
-    annualPriceId: Deno.env.get("NEXT_PUBLIC_STRIPE_PRO_ANNUAL_PRICE_ID") || "",
-    annualPrice: 4990,
-  },
-  {
-    id: "elite_plan",
-    name: "Elite",
-    description: "Unlimited power for group stores & wholesalers",
-    price: 349,
-    interval: "month",
-    features: [
-      "1,000 VIN report credits / month (30-day rollover)",
-      "Unlimited user seats",
-      "REST/API & SFTP data feeds",
-      "Dedicated Customer Success Manager",
-      "99.9% uptime SLA & phone support",
-      "Overage: $1.25 per extra report",
-    ],
-    maxReports: 1000,
-    priority: "premium",
-    stripePriceId:
-      Deno.env.get("NEXT_PUBLIC_STRIPE_ELITE_MONTHLY_PRICE_ID") || "",
-    annualPriceId:
-      Deno.env.get("NEXT_PUBLIC_STRIPE_ELITE_ANNUAL_PRICE_ID") || "",
-    annualPrice: 9990,
-  },
-  {
-    id: "starter",
-    name: "Starter",
-    description: "Essential auction insights for single-lot dealers",
-    price: 25,
-    interval: "month",
-    features: [
-      "100 VIN report credits / month (30-day rollover)",
-      "1 user seat",
-      "Chrome extension + PDF export",
-      "Community email support",
-      "Overage: $2.25 per extra report",
-    ],
-    maxReports: 4,
-    priority: "standard",
-    stripePriceId:
-      Deno.env.get("NEXT_PUBLIC_STRIPE_STARTER_MONTHLY_PRICE_ID") || "",
-    annualPriceId:
-      Deno.env.get("NEXT_PUBLIC_STRIPE_STARTER_ANNUAL_PRICE_ID") || "",
-    annualPrice: 1990,
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    description: "Built for franchise rooftops & high-turn independents",
-    price: 119,
-    interval: "month",
-    features: [
-      "350 VIN report credits / month (30-day rollover)",
-      "3 user seats (add'l seats $25/user)",
-      "Saved searches & batch VIN upload",
-      "Priority 1-hour chat support",
-      "Overage: $1.75 per extra report",
-    ],
-    maxReports: 25,
-    priority: "priority",
-    popular: true,
-    stripePriceId:
-      Deno.env.get("NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID") || "",
-    annualPriceId: Deno.env.get("NEXT_PUBLIC_STRIPE_PRO_ANNUAL_PRICE_ID") || "",
-    annualPrice: 4990,
-  },
-  {
-    id: "elite",
-    name: "Elite",
-    description: "Unlimited power for group stores & wholesalers",
-    price: 349,
-    interval: "month",
-    features: [
-      "1,000 VIN report credits / month (30-day rollover)",
-      "Unlimited user seats",
-      "REST/API & SFTP data feeds",
-      "Dedicated Customer Success Manager",
-      "99.9% uptime SLA & phone support",
-      "Overage: $1.25 per extra report",
-    ],
-    maxReports: 80,
-    priority: "premium",
-    stripePriceId:
-      Deno.env.get("NEXT_PUBLIC_STRIPE_ELITE_MONTHLY_PRICE_ID") || "",
-    annualPriceId:
-      Deno.env.get("NEXT_PUBLIC_STRIPE_ELITE_ANNUAL_PRICE_ID") || "",
-    annualPrice: 9990,
-  },
-];
-
-export interface Subscription {
-  id: string;
-  user_id: string;
-  plan_id: string;
-  status: "active" | "canceled" | "past_due" | "incomplete" | "trialing";
-  current_period_start: string;
-  current_period_end: string;
-  cancel_at_period_end: boolean;
-  stripe_subscription_id?: string;
-  stripe_customer_id?: string;
-  reports_used: number;
+  monthly_fee: number;
+  annual_fee: number;
+  included_reports: number;
+  extra_report_price: number | null;
+  history_addon_price: number | null;
+  included_seats: number;
+  extra_seat_price: number | null;
+  stripe_price_id_monthly: string | null;
+  stripe_price_id_annual: string | null;
+  is_active: boolean;
+  display_order: number;
+  is_popular: boolean;
   created_at: string;
   updated_at: string;
 }
 
+export interface Subscription {
+  id: string; // UUID
+  user_id: string; // UUID
+  plan_id: string; // UUID reference to plans table
+  status: "active" | "past_due" | "canceled" | "trialing";
+  current_period_start: string; // TIMESTAMP WITH TIME ZONE
+  current_period_end: string; // TIMESTAMP WITH TIME ZONE
+  stripe_subscription_id: string | null;
+  start_date: string | null; // DATE
+  is_annual: boolean;
+  parent_subscription_id: string | null; // UUID for upgrade/downgrade tracking
+  cancel_at_period_end: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubscriptionAddon {
+  id: string; // UUID
+  subscription_id: string; // UUID
+  addon_type: "history" | "seat" | "extra_report";
+  quantity: number;
+  price_per_unit: number;
+  stripe_item_id: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReportBlock {
+  id: string; // UUID
+  user_id: string; // UUID
+  report_block_type_id: string; // UUID
+  reports_total: number;
+  reports_used: number;
+  purchase_date: string; // TIMESTAMP WITH TIME ZONE
+  expiry_date: string; // TIMESTAMP WITH TIME ZONE (90 days from purchase)
+  stripe_payment_intent_id: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReportBlockType {
+  id: string; // UUID
+  plan_id: string; // UUID
+  block_size: number; // 5, 10, 20, 50
+  with_history: boolean;
+  price: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubscriptionUsageSummary {
+  id: string; // UUID
+  subscription_id: string; // UUID
+  billing_period_start: string; // DATE
+  billing_period_end: string; // DATE
+  reports_included: number;
+  reports_used: number;
+  reports_remaining: number; // Computed column
+  last_reset_date: string | null; // TIMESTAMP WITH TIME ZONE
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReportUsage {
+  id: string; // UUID
+  user_id: string; // UUID
+  inspection_id: string; // UUID
+  report_id: string; // UUID
+  usage_type: "subscription_included" | "block" | "pay_per_report" | "free_trial";
+  subscription_id: string | null; // UUID
+  report_block_id: string | null; // UUID
+  had_history: boolean;
+  usage_date: string; // TIMESTAMP WITH TIME ZONE
+  billing_period_start: string | null; // DATE
+  billing_period_end: string | null; // DATE
+  created_at: string;
+}
+
+/**
+ * Enhanced access check result with new schema support
+ */
 export interface SubscriptionAccessCheck {
   hasAccess: boolean;
   canCreateReport: boolean;
-  remainingReports: number;
+  
+  // Subscription reports
+  subscriptionReports: number; // Available from current subscription
+  subscriptionIncluded: number; // Total included in subscription
+  subscriptionUsed: number; // Used from subscription this period
+  
+  // Block reports
+  blockReports: number; // Available from purchased blocks
+  activeBlocks: Array<{
+    id: string;
+    reports_remaining: number;
+    expiry_date: string;
+    with_history: boolean;
+  }>;
+  
+  // Total available
+  totalAvailableReports: number; // subscription + blocks
+  
+  // Related data
   subscription?: Subscription;
-  plan?: SubscriptionPlan;
+  plan?: Plan;
+  usageSummary?: SubscriptionUsageSummary;
+  
+  // Billing period info
+  billingPeriodStart?: string;
+  billingPeriodEnd?: string;
+}
+
+/**
+ * Result from checking user's available reports
+ * (matches the RPC function return type)
+ */
+export interface AvailableReportsResult {
+  total_available: number;
+  subscription_available: number;
+  blocks_available: number;
+  active_subscription_id: string | null;
+  active_blocks: Array<{
+    id: string;
+    reports_remaining: number;
+    expiry_date: string;
+    with_history: boolean;
+  }>;
+}
+
+/**
+ * Result from recording report usage
+ * (matches the RPC function return type)
+ */
+export interface RecordUsageResult {
+  success: boolean;
+  usage_type: "subscription_included" | "block" | "pay_per_report" | "free_trial" | "duplicate" | "insufficient";
+  message: string;
+  remaining_reports: number;
+}
+
+/**
+ * Plan features for display
+ */
+export interface PlanFeature {
+  id: string; // UUID
+  plan_id: string; // UUID
+  feature: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Extended plan information with features
+ */
+export interface PlanWithFeatures extends Plan {
+  features: PlanFeature[];
+}
+
+/**
+ * Usage tracking options for middleware
+ */
+export interface UsageTrackingOptions {
+  inspectionId: string;
+  reportId?: string; // If report already created
+  hadHistory?: boolean; // Whether history lookup was used
+  autoCreateReport?: boolean; // Create placeholder report if not provided
+}
+
+/**
+ * Subscription status check for middleware
+ */
+export interface SubscriptionStatus {
+  isActive: boolean;
+  isPastDue: boolean;
+  isCanceled: boolean;
+  willCancelAtPeriodEnd: boolean;
+  daysUntilRenewal: number;
+  subscription?: Subscription;
 }

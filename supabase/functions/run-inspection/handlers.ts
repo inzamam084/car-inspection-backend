@@ -8,6 +8,10 @@ import {
   runInBackground,
 } from "./utils.ts";
 import { RequestContext } from "./logging.ts";
+import {
+  getHttpStatusForSubscriptionError,
+  withSubscriptionCheck,
+} from "../shared/subscription-middleware.ts";
 
 // --- Route Handlers ---
 
@@ -33,6 +37,21 @@ export async function handleWebhookRequest(
     return createErrorResponse(
       "`inspection_id` is required in request payload.",
       HTTP_STATUS.BAD_REQUEST
+    );
+  }
+
+  // 🔒 Subscription check with inspectionId
+  const subCheck = await withSubscriptionCheck(ctx.userId!, {
+    requireSubscription: true,
+    checkUsageLimit: true,
+    trackUsage: true,
+    inspectionId,
+  });
+
+  if (!subCheck.success) {
+    return createErrorResponse(
+      subCheck.error || "Subscription validation failed.",
+      getHttpStatusForSubscriptionError(subCheck.code)
     );
   }
 
@@ -178,7 +197,7 @@ export function handleExtensionRequest(
  * @param ctx The request context for logging.
  * @returns A promise resolving to a Response object.
  */
-export function routeRequest(
+export async function routeRequest(
   payload: any,
   ctx: RequestContext
 ): Promise<Response> {
@@ -209,15 +228,65 @@ export function routeRequest(
       "year" in payload)
   ) {
     ctx.debug("Routing to extension handler");
-    return Promise.resolve(handleExtensionRequest(payload, ctx));
+
+    // Step 1: Pre-check subscription (without inspectionId yet)
+    const preCheck = await withSubscriptionCheck(ctx.userId!, {
+      requireSubscription: true,
+      checkUsageLimit: true,
+      trackUsage: false, // can't track until inspection exists
+    });
+
+    if (!preCheck.success) {
+      return createErrorResponse(
+        preCheck.error || "Subscription validation failed.",
+        getHttpStatusForSubscriptionError(preCheck.code)
+      );
+    }
+
+    // return Promise.resolve(handleExtensionRequest(payload, ctx));
+    // Step 2: Process extension data → creates inspection
+    const result = await processExtensionData(payload, ctx);
+
+    if (!result.success || !result.inspectionId) {
+      return createErrorResponse(
+        result.error || "Extension processing failed.",
+        HTTP_STATUS.INTERNAL_SERVER_ERROR
+      );
+    }
+
+    const inspectionId = result.inspectionId;
+
+    // Step 3: Track usage now WITH inspectionId
+    const usageCheck = await withSubscriptionCheck(ctx.userId!, {
+      requireSubscription: true,
+      checkUsageLimit: true,
+      trackUsage: true,
+      inspectionId,
+      hadHistory: false,
+    });
+
+    if (!usageCheck.success) {
+      return createErrorResponse(
+        usageCheck.error || "Failed to track usage.",
+        getHttpStatusForSubscriptionError(usageCheck.code)
+      );
+    }
+
+    return createJsonResponse(
+      {
+        success: true,
+        message: "Extension data processing started in background",
+        inspectionId,
+        status: "processing",
+      },
+      HTTP_STATUS.ACCEPTED
+    );
   }
 
-  // Fallback: Invalid format
+  // --- Fallback: Invalid format ---
   ctx.error("Invalid payload format - missing required fields");
-  return Promise.resolve(
-    createErrorResponse(
-      "Invalid payload format. Expected `inspection_id` or `vehicleData` fields.",
-      HTTP_STATUS.BAD_REQUEST
-    )
+  return createErrorResponse(
+    "Invalid payload format. Expected `inspection_id` or `vehicleData` fields.",
+    HTTP_STATUS.BAD_REQUEST
   );
 }

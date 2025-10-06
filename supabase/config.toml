@@ -302,14 +302,14 @@ verify_jwt = false
 [functions.function-call]
 verify_jwt = false
 
-[functions.function-call-old]
-verify_jwt = false
+# [functions.function-call-old]
+# verify_jwt = false
 
-[functions.process-next-chunk-old]
-verify_jwt = false
+# [functions.process-next-chunk-old]
+# verify_jwt = false
 
-[functions.run-inspection-old]
-verify_jwt = false
+# [functions.run-inspection-old]
+# verify_jwt = false
 
 [analytics]
 enabled = true
