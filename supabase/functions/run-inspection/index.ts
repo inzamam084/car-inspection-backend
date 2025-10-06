@@ -90,8 +90,6 @@ serve(async (req: Request, connInfo: ConnInfo) => {
         user_id: "[PRESENT]",
         source: "jwt",
       });
-
-      return
     }
 
     // 4. Route to the correct business logic handler
