@@ -12,7 +12,6 @@ import {
 } from "./utils.ts";
 import { routeRequest } from "./handlers.ts";
 import { RequestContext } from "./logging.ts";
-import { SUPABASE_CONFIG } from "./config.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
