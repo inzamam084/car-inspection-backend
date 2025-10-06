@@ -476,23 +476,27 @@ export async function processExtensionData(
       };
     }
 
-    // Start analysis pipeline in background
-    ctx.info("Starting analysis pipeline in background");
+    // Start analysis pipeline
+    // Note: This function is already called from background in handlers.ts
+    // So we run the analysis synchronously here
+    ctx.info("Starting analysis pipeline");
 
-    runInBackground(async () => {
-      try {
-        await runAnalysisInBackground(inspectionId, ctx);
-      } catch (error) {
-        ctx.error("Background analysis failed", {
-          inspection_id: inspectionId,
-          error: (error as Error).message,
-        });
-        await StatusManager.markAsFailed(
-          inspectionId,
-          `Analysis failed: ${(error as Error).message}`
-        );
-      }
-    });
+    try {
+      await runAnalysisInBackground(inspectionId, ctx);
+    } catch (error) {
+      ctx.error("Analysis pipeline failed", {
+        inspection_id: inspectionId,
+        error: (error as Error).message,
+      });
+      await StatusManager.markAsFailed(
+        inspectionId,
+        `Analysis failed: ${(error as Error).message}`
+      );
+      return {
+        success: false,
+        error: `Analysis failed: ${(error as Error).message}`,
+      };
+    }
 
     return {
       success: true,
