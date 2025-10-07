@@ -356,7 +356,7 @@ async function updateInspectionVehicleDetails(
           "Make",
           "Year",
           "Model",
-          "Engine",
+          // "Engine",
           "Body Style",
           "Drivetrain",
           "Title Status",

@@ -24,13 +24,19 @@ DECLARE
     starter_plan_uuid UUID;
     pro_plan_uuid UUID;
     dealer_plan_uuid UUID;
-    dealer_plus_plan_uuid UUID;
+    old_starter_plan_uuid UUID;
+    old_pro_plan_uuid UUID;
+    old_elite_plan_uuid UUID;
 BEGIN
     -- Get UUIDs from plans table
     SELECT id INTO starter_plan_uuid FROM public.plans WHERE name = 'Starter';
     SELECT id INTO pro_plan_uuid FROM public.plans WHERE name = 'Pro';
     SELECT id INTO dealer_plan_uuid FROM public.plans WHERE name = 'Dealer';
-    SELECT id INTO dealer_plus_plan_uuid FROM public.plans WHERE name = 'Dealer+';
+
+    -- (optional) if you still have lowercase legacy plan names
+    SELECT id INTO old_starter_plan_uuid FROM public.plans WHERE name = 'starter';
+    SELECT id INTO old_pro_plan_uuid FROM public.plans WHERE name = 'pro';
+    SELECT id INTO old_elite_plan_uuid FROM public.plans WHERE name = 'elite';
 
     -- Map old plan_id values to new UUIDs
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'subscriptions' AND column_name = 'plan_id') THEN
@@ -39,9 +45,9 @@ BEGIN
                 WHEN plan_id IN ('starter', 'basic') THEN starter_plan_uuid
                 WHEN plan_id IN ('pro') THEN pro_plan_uuid
                 WHEN plan_id IN ('elite') THEN dealer_plan_uuid
-                WHEN plan_id IN ('starter_plan') THEN pro_plan_uuid
-                WHEN plan_id IN ('pro_plan') THEN pro_plan_uuid
-                WHEN plan_id IN ('elite_plan') THEN dealer_plus_plan_uuid
+                WHEN plan_id IN ('starter_plan') THEN old_starter_plan_uuid
+                WHEN plan_id IN ('pro_plan') THEN old_pro_plan_uuid
+                WHEN plan_id IN ('elite_plan') THEN old_elite_plan_uuid
                 ELSE NULL
             END
         WHERE plan_id_new IS NULL;
