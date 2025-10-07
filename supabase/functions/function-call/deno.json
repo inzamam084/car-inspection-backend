@@ -4,6 +4,8 @@
   },
   "compilerOptions": {
     "strict": true,
-    "lib": ["deno.window", "dom", "esnext"]
+    "lib": ["deno.window", "dom", "esnext"],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   }
 }
