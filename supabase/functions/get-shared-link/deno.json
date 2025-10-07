@@ -1,11 +1,5 @@
 {
-  "imports": {
-    "supabase": "https://esm.sh/@supabase/supabase-js@2"
-  },
   "compilerOptions": {
-    "strict": true,
-    "lib": ["deno.window", "dom", "esnext"],
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true
+    "lib": ["deno.window", "dom", "esnext"]
   }
 }
