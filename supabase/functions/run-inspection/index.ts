@@ -1,5 +1,4 @@
 import { serve, ConnInfo } from "https://deno.land/std@0.168.0/http/server.ts";
-import { withSubscriptionCheck } from "../shared/subscription-middleware.ts";
 import {
   authenticateUser,
   createDatabaseService,
