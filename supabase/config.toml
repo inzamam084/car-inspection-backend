@@ -295,6 +295,7 @@ verify_jwt = false
 
 [functions.run-inspection]
 verify_jwt = false
+import_map = "./deno.json"
 
 [functions.check-subscription-access]
 verify_jwt = false
