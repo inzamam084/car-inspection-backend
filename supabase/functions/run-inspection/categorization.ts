@@ -360,7 +360,7 @@ async function updateInspectionVehicleDetails(
           "Body Style",
           "Drivetrain",
           "Title Status",
-          "Transmission",
+          // "Transmission",
         ];
 
         protectedFields.forEach((field) => {
