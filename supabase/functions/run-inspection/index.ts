@@ -7,7 +7,6 @@ import {
 import {
   parseRequestBody,
   createErrorResponse,
-  getStatusForSubscriptionError,
   HTTP_STATUS,
 } from "./utils.ts";
 import { routeRequest } from "./handlers.ts";
@@ -32,7 +31,7 @@ serve(async (req: Request, connInfo: ConnInfo) => {
   ctx.info("Request received", {
     url: req.url,
     method: req.method,
-    remote_addr: remoteAddr.hostname,
+    remote_addr: remoteAddr.transport,
   });
 
   try {

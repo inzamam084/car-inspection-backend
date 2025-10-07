@@ -6,7 +6,6 @@ import { Database } from "./database.ts";
 import type { ExtensionVehicleData } from "./schemas.ts";
 import { RequestContext } from "./logging.ts";
 import { SUPABASE_CONFIG } from "./config.ts";
-import { supabase } from "./config.ts";
 
 // Retry configuration
 const RETRY_CONFIG = {
