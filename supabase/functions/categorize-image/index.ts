@@ -62,17 +62,24 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /** Default CORS headers for browser access. */
-const corsHeaders = {
+const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
 
 /** Constant tag applied to all log lines for easy filtering. */
-const LOG_TAG = "CATEGORIZE_IMAGE";
+const LOG_TAG: string = "CATEGORIZE_IMAGE";
 
 /** Retry configuration */
-const RETRY_CONFIG = {
+interface RetryConfig {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  backoffMultiplier: number;
+}
+
+const RETRY_CONFIG: RetryConfig = {
   maxRetries: 3, // Total of 4 attempts (initial + 3 retries)
   baseDelayMs: 1000, // Start with 1 second
   maxDelayMs: 10000, // Cap at 10 seconds
@@ -84,7 +91,7 @@ const RETRY_CONFIG = {
  * @param message Human-readable message describing the event.
  * @param data Optional structured context to aid debugging.
  */
-function logInfo(message: string, data?: any): void {
+function logInfo(message: string, data?: unknown): void {
   const timestamp = new Date().toISOString();
   console.log(`[${LOG_TAG}] [${timestamp}] INFO: ${message}`, data || "");
 }
@@ -94,7 +101,7 @@ function logInfo(message: string, data?: any): void {
  * @param message Human-readable message describing the warning.
  * @param data Optional structured context to aid debugging.
  */
-function logWarn(message: string, data?: any): void {
+function logWarn(message: string, data?: unknown): void {
   const timestamp = new Date().toISOString();
   console.warn(`[${LOG_TAG}] [${timestamp}] WARN: ${message}`, data || "");
 }
@@ -104,7 +111,7 @@ function logWarn(message: string, data?: any): void {
  * @param message Human-readable message describing the error.
  * @param error Optional error object (or additional context).
  */
-function logError(message: string, error?: any): void {
+function logError(message: string, error?: unknown): void {
   const timestamp = new Date().toISOString();
   console.error(`[${LOG_TAG}] [${timestamp}] ERROR: ${message}`, error || "");
 }
@@ -114,7 +121,7 @@ function logError(message: string, error?: any): void {
  * @param message Human-readable message describing the debug context.
  * @param data Optional structured context to aid debugging.
  */
-function logDebug(message: string, data?: any): void {
+function logDebug(message: string, data?: unknown): void {
   const timestamp = new Date().toISOString();
   console.log(`[${LOG_TAG}] [${timestamp}] DEBUG: ${message}`, data || "");
 }
@@ -126,14 +133,14 @@ function logDebug(message: string, data?: any): void {
 /**
  * Determine if an error is retryable based on HTTP status or error type
  */
-function isRetryableError(error: any, httpStatus?: number): boolean {
+function isRetryableError(error: unknown, httpStatus?: number): boolean {
   // Retry on 5xx server errors
   if (httpStatus && httpStatus >= 500) {
     return true;
   }
 
   // Retry on specific error patterns
-  const errorMessage = error?.message?.toLowerCase() || "";
+  const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
   
   const retryablePatterns = [
     "timeout",
@@ -159,7 +166,7 @@ function isRetryableError(error: any, httpStatus?: number): boolean {
 async function retryWithBackoff<T>(
   operation: () => Promise<T>,
   operationName: string,
-  config = RETRY_CONFIG
+  config: RetryConfig = RETRY_CONFIG
 ): Promise<{ result: T; attempts: number }> {
   let lastError: Error;
   let attempt = 0;
@@ -188,12 +195,14 @@ async function retryWithBackoff<T>(
       }
       
       return { result, attempts: attempt + 1 };
-    } catch (error) {
-      lastError = error as Error;
+    } catch (error: unknown) {
+      lastError = error instanceof Error ? error : new Error(String(error));
       attempt++;
 
       // Check if we should retry
-      const httpStatus = (error as any).httpStatus;
+      const httpStatus = error && typeof error === 'object' && 'httpStatus' in error
+        ? (error as { httpStatus: number }).httpStatus
+        : undefined;
       const shouldRetry = isRetryableError(error, httpStatus);
 
       if (attempt > config.maxRetries) {
@@ -472,7 +481,7 @@ function extractAvailableVehicleData(
  * @param inspectionType Optional inspection type hint to apply protection rules.
  */
 async function updateInspectionVehicleDetails(
-  supabase: any,
+  supabase: ReturnType<typeof createClient>,
   inspectionId: string,
   vehicleDetails: Record<string, any>,
   inspectionType?: string
@@ -630,7 +639,7 @@ async function updateInspectionVehicleDetails(
     logInfo(
       `Successfully updated inspection ${inspectionId} with merged vehicle details and direct columns`
     );
-  } catch (error) {
+  } catch (error: unknown) {
     logError(`Error updating inspection vehicle details`, error);
     throw error;
   }
@@ -641,10 +650,10 @@ async function updateInspectionVehicleDetails(
  * Category defaults to "exterior" if not provided by the model.
  */
 async function updatePhotoWithAnalysis(
-  supabase: any,
+  supabase: ReturnType<typeof createClient>,
   photoId: string,
   category: string,
-  llmAnalysis?: any
+  llmAnalysis?: Record<string, unknown>
 ): Promise<void> {
   try {
     const updateData: any = { category };
@@ -666,7 +675,7 @@ async function updatePhotoWithAnalysis(
     logInfo(
       `Successfully updated photo ${photoId} with category: ${category} and LLM analysis`
     );
-  } catch (error) {
+  } catch (error: unknown) {
     logError(`Error updating photo with analysis`, error);
     throw error;
   }
@@ -676,9 +685,9 @@ async function updatePhotoWithAnalysis(
  * Attach LLM analysis to an `obd2_codes` row. OBD images do not carry a category label.
  */
 async function updateOBD2WithAnalysis(
-  supabase: any,
+  supabase: ReturnType<typeof createClient>,
   obd2Id: string,
-  llmAnalysis?: any
+  llmAnalysis?: Record<string, unknown>
 ): Promise<void> {
   try {
     const updateData: any = {};
@@ -698,7 +707,7 @@ async function updateOBD2WithAnalysis(
     }
 
     logInfo(`Successfully updated OBD2 code ${obd2Id} with LLM analysis`);
-  } catch (error) {
+  } catch (error: unknown) {
     logError(`Error updating OBD2 code with analysis`, error);
     throw error;
   }
@@ -708,9 +717,9 @@ async function updateOBD2WithAnalysis(
  * Attach LLM analysis to a `title_images` row. Title images do not carry a category label.
  */
 async function updateTitleImageWithAnalysis(
-  supabase: any,
+  supabase: ReturnType<typeof createClient>,
   titleImageId: string,
-  llmAnalysis?: any
+  llmAnalysis?: Record<string, unknown>
 ): Promise<void> {
   try {
     const updateData: any = {};
@@ -732,7 +741,7 @@ async function updateTitleImageWithAnalysis(
     logInfo(
       `Successfully updated title image ${titleImageId} with LLM analysis`
     );
-  } catch (error) {
+  } catch (error: unknown) {
     logError(`Error updating title image with analysis`, error);
     throw error;
   }
@@ -828,9 +837,9 @@ Deno.serve(async (req) => {
 
         if (!response.ok) {
           const errorText = await response.text();
-          const error: any = new Error(
+          const error = new Error(
             `Function-call failed: HTTP ${response.status}: ${errorText}`
-          );
+          ) as Error & { httpStatus: number };
           error.httpStatus = response.status;
           throw error;
         }
@@ -940,19 +949,22 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
-  } catch (error) {
+  } catch (error: unknown) {
     // --- Error handling ---
     const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
     logError("Image categorization failed", {
-      error: (error as Error).message,
-      stack: (error as Error).stack,
+      error: errorMessage,
+      stack: errorStack,
       duration_ms: duration,
     });
 
     return new Response(
       JSON.stringify({
         success: false,
-        error: (error as Error).message || "Internal server error",
+        error: errorMessage || "Internal server error",
         duration_ms: duration,
       }),
       {

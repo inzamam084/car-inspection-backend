@@ -65,7 +65,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /** Default CORS headers for cross-origin requests. */
-const corsHeaders = {
+const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
@@ -76,14 +76,14 @@ const corsHeaders = {
 // --------------------------------------------------
 
 /** Constant log tag to simplify filtering in logs. */
-const LOG_TAG = "UPLOAD_IMAGE";
+const LOG_TAG: string = "UPLOAD_IMAGE";
 
 /**
  * Emit an informational log line.
  * @param message Human-readable description.
  * @param data Optional structured context object for debugging.
  */
-function logInfo(message: string, data?: any): void {
+function logInfo(message: string, data?: unknown): void {
   const timestamp = new Date().toISOString();
   console.log(`[${LOG_TAG}] [${timestamp}] INFO: ${message}`, data || "");
 }
@@ -93,7 +93,7 @@ function logInfo(message: string, data?: any): void {
  * @param message Human-readable error description.
  * @param error Optional Error or context object.
  */
-function logError(message: string, error?: any): void {
+function logError(message: string, error?: unknown): void {
   const timestamp = new Date().toISOString();
   console.error(`[${LOG_TAG}] [${timestamp}] ERROR: ${message}`, error || "");
 }
@@ -103,7 +103,7 @@ function logError(message: string, error?: any): void {
  * @param message Human-readable debug description.
  * @param data Optional structured context object for debugging.
  */
-function logDebug(message: string, data?: any): void {
+function logDebug(message: string, data?: unknown): void {
   const timestamp = new Date().toISOString();
   console.log(`[${LOG_TAG}] [${timestamp}] DEBUG: ${message}`, data || "");
 }
@@ -113,10 +113,10 @@ function logDebug(message: string, data?: any): void {
 // --------------------------------------------------
 
 /** Candidate desktop user agents used when fetching remote images. */
-const USER_AGENTS = [
+const USER_AGENTS: readonly string[] = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-];
+] as const;
 
 /**
  * Compute a reasonable `Referer` header for a given image URL. Some classifieds/auction sites
@@ -144,7 +144,7 @@ function getRefererForUrl(url: string): string {
     } else {
       return `${urlObj.protocol}//${urlObj.hostname}/`;
     }
-  } catch (error) {
+  } catch (error: unknown) {
     return "https://www.google.com/";
   }
 }
@@ -205,7 +205,7 @@ async function downloadImageBuffered(url: string): Promise<Uint8Array> {
  * @returns `{ success, url?, error? }` with the public URL on success.
  */
 async function uploadBufferedToSupabase(
-  supabase: any,
+  supabase: ReturnType<typeof createClient>,
   imageBuffer: Uint8Array,
   filename: string,
   inspectionId: string,
@@ -231,8 +231,8 @@ async function uploadBufferedToSupabase(
       .getPublicUrl(uploadPath);
 
     return { success: true, url: urlData.publicUrl };
-  } catch (error) {
-    return { success: false, error: (error as Error).message };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -248,7 +248,7 @@ async function uploadBufferedToSupabase(
  * @returns `{ success, url?, error?, fileSize? }` with public URL and size when available.
  */
 async function uploadStreamingToSupabase(
-  supabase: any,
+  supabase: ReturnType<typeof createClient>,
   imageUrl: string,
   filename: string,
   inspectionId: string,
@@ -312,15 +312,15 @@ async function uploadStreamingToSupabase(
       url: urlData.publicUrl,
       fileSize: fileSize,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     clearTimeout(timeoutId);
-    if (error.name === "AbortError") {
+    if (error instanceof Error && error.name === "AbortError") {
       return {
         success: false,
         error: `Streaming timeout after ${timeoutMs}ms`,
       };
     }
-    return { success: false, error: (error as Error).message };
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -338,7 +338,7 @@ async function uploadStreamingToSupabase(
  * @returns `{ success, photoId?, error? }`.
  */
 async function saveToDatabase(
-  supabase: any,
+  supabase: ReturnType<typeof createClient>,
   inspectionId: string,
   publicUrl: string,
   fileSize: number,
@@ -363,8 +363,8 @@ async function saveToDatabase(
     }
 
     return { success: true, photoId: data.id };
-  } catch (error) {
-    return { success: false, error: (error as Error).message };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -386,7 +386,7 @@ async function saveToDatabase(
  *          On failure, `{ success: false, error }`.
  */
 async function processImageWithRetry(
-  supabase: any,
+  supabase: ReturnType<typeof createClient>,
   imageUrl: string,
   inspectionId: string,
   bucketName: string,
@@ -506,9 +506,9 @@ async function processImageWithRetry(
               };
             }
           }
-        } catch (streamError) {
+        } catch (streamError: unknown) {
           logDebug("Streaming failed, falling back to buffered", {
-            error: (streamError as Error).message,
+            error: streamError instanceof Error ? streamError.message : String(streamError),
           });
         }
 
@@ -551,8 +551,8 @@ async function processImageWithRetry(
           `Invalid approach: ${approach}. Must be 'streaming', 'buffered', or 'hybrid'`
         );
       }
-    } catch (error) {
-      lastError = error as Error;
+    } catch (error: unknown) {
+      lastError = error instanceof Error ? error : new Error(String(error));
 
       if (attempt < maxRetries - 1) {
         const delay = 1000 * Math.pow(2, attempt); // Exponential backoff
@@ -681,18 +681,21 @@ Deno.serve(async (req) => {
         }
       );
     }
-  } catch (error) {
+  } catch (error: unknown) {
     const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
     logError("Image upload failed", {
-      error: (error as Error).message,
-      stack: (error as Error).stack,
+      error: errorMessage,
+      stack: errorStack,
       duration_ms: duration,
     });
 
     return new Response(
       JSON.stringify({
         success: false,
-        error: (error as Error).message || "Internal server error",
+        error: errorMessage || "Internal server error",
         duration_ms: duration,
       }),
       {
