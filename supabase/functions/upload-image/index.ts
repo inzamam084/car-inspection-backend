@@ -1,38 +1,128 @@
+/**
+ * UPLOAD_IMAGE – Supabase Edge Function (Deno)
+ * -------------------------------------------------
+ *
+ * This Edge Function ingests a remote image URL, uploads the image to Supabase Storage using one of
+ * three approaches (streaming, buffered, or hybrid), and records a corresponding row in the `photos`
+ * table with basic metadata. The function implements retry with exponential backoff, user-agent and
+ * referer spoofing for auction/classifieds sites, and returns timing + storage details to the caller.
+ *
+ * ## Responsibilities
+ * 1. Validate request body and handle CORS preflight.
+ * 2. Choose the requested upload approach:
+ *    - **streaming**: pipe the origin response body directly to Supabase Storage (low memory).
+ *    - **buffered**: download origin to memory (Uint8Array) then upload (simple semantics).
+ *    - **hybrid**: attempt streaming first; on failure, fall back to buffered.
+ * 3. Persist a `photos` row containing: `inspection_id`, `category` (defaults to `uncategorized`),
+ *    `path` (public URL), `image_url` (original URL), `storage` (size in bytes as string), `created_at`.
+ * 4. Return success payload including `photo_id`, `supabase_url`, `filename`, `file_size`, and
+ *    `approach_used` for observability.
+ *
+ * ## Tables
+ * - `photos`
+ *   - Inserted fields: `inspection_id`, `category`, `path`, `image_url`, `storage`, `created_at`
+ *   - Selected for response: `id`
+ *
+ * ## Environment Variables
+ * - `SUPABASE_URL`: Your Supabase project URL.
+ * - `SUPABASE_SERVICE_ROLE_KEY`: Service role key (server-only) used to call Storage and insert DB rows.
+ *
+ * ## Request (this function)
+ * - Method: `POST`
+ * - Body: `{ image_url: string, inspection_id: string, approach?: "streaming"|"buffered"|"hybrid", bucket_name?: string }`
+ *   - `approach` defaults to `"hybrid"`.
+ *   - `bucket_name` defaults to `"inspection-photos"`.
+ *
+ * ## Response (this function)
+ * - `200 OK` on success:
+ *   ```json
+ *   {
+ *     "success": true,
+ *     "photo_id": "...",
+ *     "supabase_url": "https://.../public/...",
+ *     "filename": "uncategorized_...jpg",
+ *     "file_size": 123456,
+ *     "approach_used": "streaming|buffered|buffered_fallback",
+ *     "duration_ms": 1234
+ *   }
+ *   ```
+ * - `400 Bad Request` when required fields are missing.
+ * - `500 Internal Server Error` when upload or DB steps fail.
+ *
+ * ## Error Handling & Logging
+ * Structured logs (`INFO`, `DEBUG`, `ERROR`) include a static tag and ISO-8601 timestamp.
+ * Errors are propagated to HTTP 500 with a concise message in the `error` field.
+ *
+ * ## Security Notes
+ * - This function requires the service role key to talk to Storage and insert DB rows. Ensure the key
+ *   remains server-side only. Do **not** expose this Edge endpoint without an appropriate auth layer
+ *   if you want to restrict usage.
+ * - The uploaded file path uses `inspection_id/filename`. Ensure `inspection_id` is validated and
+ *   not sensitive.
+ */
+
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+/** Default CORS headers for cross-origin requests. */
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
 
-// Logging configuration
+// --------------------------------------------------
+// Logging utilities
+// --------------------------------------------------
+
+/** Constant log tag to simplify filtering in logs. */
 const LOG_TAG = "UPLOAD_IMAGE";
 
+/**
+ * Emit an informational log line.
+ * @param message Human-readable description.
+ * @param data Optional structured context object for debugging.
+ */
 function logInfo(message: string, data?: any): void {
   const timestamp = new Date().toISOString();
   console.log(`[${LOG_TAG}] [${timestamp}] INFO: ${message}`, data || "");
 }
 
+/**
+ * Emit an error log line.
+ * @param message Human-readable error description.
+ * @param error Optional Error or context object.
+ */
 function logError(message: string, error?: any): void {
   const timestamp = new Date().toISOString();
   console.error(`[${LOG_TAG}] [${timestamp}] ERROR: ${message}`, error || "");
 }
 
+/**
+ * Emit a debug log line.
+ * @param message Human-readable debug description.
+ * @param data Optional structured context object for debugging.
+ */
 function logDebug(message: string, data?: any): void {
   const timestamp = new Date().toISOString();
   console.log(`[${LOG_TAG}] [${timestamp}] DEBUG: ${message}`, data || "");
 }
 
-// User agents for requests
+// --------------------------------------------------
+// User-agent / referer helpers
+// --------------------------------------------------
+
+/** Candidate desktop user agents used when fetching remote images. */
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 ];
 
 /**
- * Get appropriate referer for different auction sites
+ * Compute a reasonable `Referer` header for a given image URL. Some classifieds/auction sites
+ * require a valid referer for hotlinking; this helper returns the site root for known hosts.
+ * @param url The absolute image URL.
+ * @returns A referer URL string.
  */
 function getRefererForUrl(url: string): string {
   try {
@@ -59,8 +149,14 @@ function getRefererForUrl(url: string): string {
   }
 }
 
+// --------------------------------------------------
+// Filename & download helpers
+// --------------------------------------------------
+
 /**
- * Generate a categorized filename for image storage
+ * Generate a storage filename prefixed with `uncategorized_` followed by a timestamp and random
+ * suffix. The extension is always `.jpg` for consistency.
+ * @param originalUrl The source URL (not currently used in generation, reserved for future use).
  */
 function generateFilename(originalUrl: string): string {
   const timestamp = Date.now();
@@ -69,7 +165,11 @@ function generateFilename(originalUrl: string): string {
 }
 
 /**
- * Download image into memory buffer (buffered approach)
+ * Download the image into memory (buffered approach) using a desktop user-agent and a computed
+ * referer. This is a fallback-friendly, simple method but incurs memory usage equal to image size.
+ * @param url Absolute image URL to download.
+ * @throws If the origin server responds with a non-2xx status.
+ * @returns Raw bytes as a `Uint8Array`.
  */
 async function downloadImageBuffered(url: string): Promise<Uint8Array> {
   const userAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
@@ -91,8 +191,18 @@ async function downloadImageBuffered(url: string): Promise<Uint8Array> {
   return new Uint8Array(arrayBuffer);
 }
 
+// --------------------------------------------------
+// Supabase Storage interactions
+// --------------------------------------------------
+
 /**
- * Upload image buffer to Supabase storage (buffered approach)
+ * Upload an in-memory buffer to Supabase Storage.
+ * @param supabase Supabase service-role client.
+ * @param imageBuffer Raw image bytes.
+ * @param filename Target filename (no leading slash).
+ * @param inspectionId Used to build the upload path: `${inspectionId}/${filename}`.
+ * @param bucketName Storage bucket name.
+ * @returns `{ success, url?, error? }` with the public URL on success.
  */
 async function uploadBufferedToSupabase(
   supabase: any,
@@ -127,7 +237,15 @@ async function uploadBufferedToSupabase(
 }
 
 /**
- * Stream image directly from source to Supabase (streaming approach)
+ * Stream an image directly from the origin server into Supabase Storage, minimizing memory usage.
+ * Supports an abort timeout for slow servers.
+ * @param supabase Supabase service-role client.
+ * @param imageUrl Absolute image URL.
+ * @param filename Target filename.
+ * @param inspectionId Used to build `${inspectionId}/${filename}`.
+ * @param bucketName Storage bucket name.
+ * @param timeoutMs Optional timeout (default 45s) after which the request aborts.
+ * @returns `{ success, url?, error?, fileSize? }` with public URL and size when available.
  */
 async function uploadStreamingToSupabase(
   supabase: any,
@@ -170,8 +288,8 @@ async function uploadStreamingToSupabase(
 
     const uploadPath = `${inspectionId}/${filename}`;
 
-    // Stream directly to Supabase
-    const { data, error } = await supabase.storage
+    // Pipe origin stream to Supabase Storage
+    const { error } = await supabase.storage
       .from(bucketName)
       .upload(uploadPath, response.body, {
         contentType: contentType,
@@ -194,7 +312,7 @@ async function uploadStreamingToSupabase(
       url: urlData.publicUrl,
       fileSize: fileSize,
     };
-  } catch (error:any) {
+  } catch (error: any) {
     clearTimeout(timeoutId);
     if (error.name === "AbortError") {
       return {
@@ -206,8 +324,18 @@ async function uploadStreamingToSupabase(
   }
 }
 
+// --------------------------------------------------
+// Database persistence
+// --------------------------------------------------
+
 /**
- * Save image metadata to database
+ * Insert a newly uploaded photo row into the `photos` table.
+ * @param supabase Supabase service-role client.
+ * @param inspectionId Inspection foreign key.
+ * @param publicUrl Public URL returned from Storage upload.
+ * @param fileSize File size in bytes (0 if unknown during streaming without content-length).
+ * @param originalImageUrl The original source URL (kept for traceability).
+ * @returns `{ success, photoId?, error? }`.
  */
 async function saveToDatabase(
   supabase: any,
@@ -240,8 +368,22 @@ async function saveToDatabase(
   }
 }
 
+// --------------------------------------------------
+// Orchestration with retries
+// --------------------------------------------------
+
 /**
- * Process image with retry logic
+ * Process a single image upload with the specified approach. Implements retry with exponential
+ * backoff across the entire operation, including storage upload and DB insert.
+ *
+ * @param supabase Supabase service-role client.
+ * @param imageUrl Absolute source image URL.
+ * @param inspectionId Inspection ID for both storage path and DB linkage.
+ * @param bucketName Storage bucket name.
+ * @param approach One of `"streaming" | "buffered" | "hybrid"`.
+ * @param maxRetries Number of attempts before giving up (default 3).
+ * @returns On success, `{ success: true, supabaseUrl, photoId, filename, fileSize, approach_used }`.
+ *          On failure, `{ success: false, error }`.
  */
 async function processImageWithRetry(
   supabase: any,
@@ -428,7 +570,10 @@ async function processImageWithRetry(
   };
 }
 
-// Main handler
+// --------------------------------------------------
+// HTTP entrypoint
+// --------------------------------------------------
+
 Deno.serve(async (req) => {
   // Handle CORS
   if (req.method === "OPTIONS") {

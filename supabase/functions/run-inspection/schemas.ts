@@ -162,15 +162,6 @@ export interface DifyApiResponse {
   created_at: number;
 }
 
-export interface UploadResult {
-  success: boolean;
-  originalUrl: string;
-  supabaseUrl?: string;
-  filename?: string;
-  category?: string;
-  error?: string;
-}
-
 export type InspectionStatus =
   | "pending"
   | "processing"
