@@ -386,7 +386,7 @@ async function saveToDatabase(
  *          On failure, `{ success: false, error }`.
  */
 async function processImageWithRetry(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   imageUrl: string,
   inspectionId: string,
   bucketName: string,

@@ -481,7 +481,7 @@ function extractAvailableVehicleData(
  * @param inspectionType Optional inspection type hint to apply protection rules.
  */
 async function updateInspectionVehicleDetails(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   inspectionId: string,
   vehicleDetails: Record<string, any>,
   inspectionType?: string
@@ -650,7 +650,7 @@ async function updateInspectionVehicleDetails(
  * Category defaults to "exterior" if not provided by the model.
  */
 async function updatePhotoWithAnalysis(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   photoId: string,
   category: string,
   llmAnalysis?: Record<string, unknown>
@@ -685,7 +685,7 @@ async function updatePhotoWithAnalysis(
  * Attach LLM analysis to an `obd2_codes` row. OBD images do not carry a category label.
  */
 async function updateOBD2WithAnalysis(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   obd2Id: string,
   llmAnalysis?: Record<string, unknown>
 ): Promise<void> {
@@ -717,7 +717,7 @@ async function updateOBD2WithAnalysis(
  * Attach LLM analysis to a `title_images` row. Title images do not carry a category label.
  */
 async function updateTitleImageWithAnalysis(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   titleImageId: string,
   llmAnalysis?: Record<string, unknown>
 ): Promise<void> {
