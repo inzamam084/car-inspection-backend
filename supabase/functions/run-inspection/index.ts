@@ -6,10 +6,16 @@ import {
 import {
   parseRequestBody,
   createErrorResponse,
+  createJsonResponse,
   HTTP_STATUS,
+  runInBackground,
 } from "./utils.ts";
 import { routeRequest } from "./handlers.ts";
 import { RequestContext } from "./logging.ts";
+import {
+  withSubscriptionCheck,
+  getHttpStatusForSubscriptionError,
+} from "../shared/subscription-middleware.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -89,13 +95,89 @@ serve(async (req: Request, connInfo: ConnInfo) => {
       });
     }
 
-    // 4. Route to the correct business logic handler
-    ctx.debug("Routing request to handler");
-    const response = await routeRequest(payload, ctx);
-    ctx.logSuccess({ status: response.status });
+    // 3. Check Subscription and Usage Limit BEFORE routing
+    ctx.info("Checking subscription and usage limit");
+    const subscriptionCheck = await withSubscriptionCheck(userId, {
+      requireSubscription: true, // Allow blocks without active subscription
+      checkUsageLimit: true,       // Check if user has available reports
+      trackUsage: false,           // Don't track yet - will track after inspection creation
+    });
+
+    if (!subscriptionCheck.success) {
+      ctx.error("Subscription check failed", {
+        error: subscriptionCheck.error,
+        code: subscriptionCheck.code,
+        remaining_reports: subscriptionCheck.remainingReports,
+      });
+      
+      return createErrorResponse(
+        subscriptionCheck.error || "Subscription validation failed.",
+        getHttpStatusForSubscriptionError(subscriptionCheck.code)
+      );
+    }
+
+    ctx.info("Subscription check passed", {
+      remaining_reports: subscriptionCheck.remainingReports,
+      subscription_reports: subscriptionCheck.subscriptionReports,
+      block_reports: subscriptionCheck.blockReports,
+      has_active_subscription: subscriptionCheck.hasActiveSubscription,
+    });
+
+    // 4. Generate a temporary ID for immediate response
+    const tempRequestId = `req-${Date.now()}-${Math.random()
+      .toString(36)
+      .substring(2, 11)}`;
+
+    ctx.info("Processing request in background", {
+      temp_request_id: tempRequestId,
+    });
+
+    // 5. Route to handler in background - let it process asynchronously
+    runInBackground(async () => {
+      try {
+        ctx.info("Background processing started", {
+          temp_request_id: tempRequestId,
+        });
+        
+        const response = await routeRequest(payload, ctx);
+        
+        ctx.logSuccess({ 
+          status: response.status,
+          temp_request_id: tempRequestId,
+        });
+        
+        ctx.info("Background processing completed successfully", {
+          temp_request_id: tempRequestId,
+          response_status: response.status,
+        });
+      } catch (error) {
+        ctx.error("Background processing failed", {
+          temp_request_id: tempRequestId,
+          error: (error as Error).message,
+          stack: (error as Error).stack,
+        });
+      }
+    });
+
+    // 6. Return immediate response - request accepted for processing
+    ctx.info("Returning immediate acceptance response");
+    const immediateResponse = createJsonResponse(
+      {
+        success: true,
+        message: "Request accepted and processing in background",
+        requestId: tempRequestId,
+        status: "processing",
+        subscription: {
+          remaining_reports: subscriptionCheck.remainingReports,
+          subscription_reports: subscriptionCheck.subscriptionReports,
+          block_reports: subscriptionCheck.blockReports,
+        },
+      },
+      HTTP_STATUS.ACCEPTED
+    );
 
     // Add CORS headers to response
-    const headers = new Headers(response.headers);
+    const headers = new Headers(immediateResponse.headers);
     headers.set("Access-Control-Allow-Origin", "*");
     headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
     headers.set(
@@ -103,9 +185,9 @@ serve(async (req: Request, connInfo: ConnInfo) => {
       "authorization, x-client-info, apikey, content-type"
     );
 
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
+    return new Response(immediateResponse.body, {
+      status: immediateResponse.status,
+      statusText: immediateResponse.statusText,
       headers,
     });
   } catch (error) {
