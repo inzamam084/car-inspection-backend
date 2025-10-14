@@ -311,6 +311,9 @@ verify_jwt = false
 [functions.categorize-image]
 verify_jwt = false
 
+[functions.subscription-usage]
+verify_jwt = false
+
 # [functions.function-call-old]
 # verify_jwt = false
 
