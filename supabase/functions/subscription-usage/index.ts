@@ -17,7 +17,7 @@ const corsHeaders = {
 };
 
 /**
- * Edge Function: Get Subscription Usage
+ * Edge Function:  subscription-usage
  * 
  * Returns comprehensive subscription details including:
  * - Active subscription status and plan details
