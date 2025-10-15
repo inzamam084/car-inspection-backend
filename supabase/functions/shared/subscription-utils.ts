@@ -153,14 +153,14 @@ export async function getUserAvailableReports(
     let activeSubscriptionId: string | null = null;
     let activeBlocks: any[] = [];
 
-    // Step 1: Get active subscription with plan details
+    // Step 1: Get active subscription
     const { data: subscriptionData, error: subError } = await supabase
       .from("subscriptions")
       .select(`
         id,
+        plan_id,
         current_period_start,
-        current_period_end,
-        plan:plans!inner(included_reports)
+        current_period_end
       `)
       .eq("user_id", userId)
       .eq("status", "active")
@@ -171,7 +171,26 @@ export async function getUserAvailableReports(
 
     if (!subError && subscriptionData) {
       activeSubscriptionId = subscriptionData.id;
-      const reportsIncluded = subscriptionData.plan.included_reports;
+      
+      // Step 1a: Fetch plan details separately
+      const { data: planData, error: planError } = await supabase
+        .from("plans")
+        .select("included_reports")
+        .eq("id", subscriptionData.plan_id)
+        .single();
+      
+      if (planError || !planData) {
+        console.error("Error fetching plan:", planError);
+        return {
+          total_available: 0,
+          subscription_available: 0,
+          blocks_available: 0,
+          active_subscription_id: null,
+          active_blocks: [],
+        };
+      }
+      
+      const reportsIncluded = planData.included_reports;
       const billingPeriodStart = new Date(subscriptionData.current_period_start)
         .toISOString()
         .split("T")[0];
@@ -192,7 +211,7 @@ export async function getUserAvailableReports(
       subscriptionAvailable = Math.max(0, reportsIncluded - reportsUsed);
     }
 
-    // Step 2: Get active report blocks (fetch all and filter in memory)
+    // Step 2: Get active report blocks
     const { data: allBlocks, error: blocksError } = await supabase
       .from("report_blocks")
       .select(`
@@ -200,7 +219,7 @@ export async function getUserAvailableReports(
         reports_total,
         reports_used,
         expiry_date,
-        report_block_type:report_block_types!inner(with_history)
+        report_block_type_id
       `)
       .eq("user_id", userId)
       .eq("is_active", true)
@@ -214,6 +233,24 @@ export async function getUserAvailableReports(
       );
 
       if (blocks.length > 0) {
+        // Step 2a: Get unique report block type IDs
+        const blockTypeIds = [...new Set(blocks.map((b: any) => b.report_block_type_id))];
+        
+        // Step 2b: Fetch report block types separately
+        const { data: blockTypes, error: typesError } = await supabase
+          .from("report_block_types")
+          .select("id, with_history")
+          .in("id", blockTypeIds);
+        
+        if (typesError) {
+          console.error("Error fetching block types:", typesError);
+        }
+        
+        // Create a map for quick lookup
+        const blockTypesMap = new Map(
+          (blockTypes || []).map((type: any) => [type.id, type])
+        );
+        
         // Calculate total blocks available
         blocksAvailable = blocks.reduce(
           (sum: any, block: any) => sum + (block.reports_total - block.reports_used),
@@ -221,12 +258,15 @@ export async function getUserAvailableReports(
         );
 
         // Build active blocks array with remaining reports
-        activeBlocks = blocks.map((block: any) => ({
-          id: block.id,
-          reports_remaining: block.reports_total - block.reports_used,
-          expiry_date: block.expiry_date,
-          with_history: block.report_block_type.with_history,
-        }));
+        activeBlocks = blocks.map((block: any) => {
+          const blockType = blockTypesMap.get(block.report_block_type_id);
+          return {
+            id: block.id,
+            reports_remaining: block.reports_total - block.reports_used,
+            expiry_date: block.expiry_date,
+            with_history: (blockType as any)?.with_history || false,
+          };
+        });
       }
     }
 
@@ -364,9 +404,9 @@ export async function recordReportUsage(
       .from("subscriptions")
       .select(`
         id,
+        plan_id,
         current_period_start,
-        current_period_end,
-        plan:plans(included_reports)
+        current_period_end
       `)
       .eq("user_id", userId)
       .eq("status", "active")
@@ -384,7 +424,20 @@ export async function recordReportUsage(
       const billingPeriodEnd = new Date(subscriptionData.current_period_end)
         .toISOString()
         .split("T")[0];
-      const reportsIncluded = subscriptionData.plan.included_reports;
+      
+      // Step 3a: Fetch plan details separately
+      const { data: planData, error: planError } = await supabase
+        .from("plans")
+        .select("included_reports")
+        .eq("id", subscriptionData.plan_id)
+        .single();
+      
+      if (planError || !planData) {
+        console.error("Error fetching plan:", planError);
+        // Continue to try blocks even if plan fetch fails
+      }
+      
+      const reportsIncluded = planData?.included_reports || 0;
 
       // Get or create usage summary for current period
       const { data: usageSummary, error: summaryError } = await supabase
@@ -471,14 +524,13 @@ export async function recordReportUsage(
     }
 
     // Step 4: Try to use report block (oldest expiring first - FIFO)
-    // Fetch all blocks and filter in memory
     const { data: allBlocks, error: blockError } = await supabase
       .from("report_blocks")
       .select(`
         id,
         reports_total,
         reports_used,
-        report_block_type:report_block_types(with_history)
+        report_block_type_id
       `)
       .eq("user_id", userId)
       .eq("is_active", true)
@@ -493,13 +545,42 @@ export async function recordReportUsage(
       );
 
       if (availableBlocks.length > 0) {
+        // Step 4a: Get block types if we need to check for history support
+        let blockTypesMap = new Map();
+        
+        if (hadHistory) {
+          const blockTypeIds = [...new Set(availableBlocks.map((b: any) => b.report_block_type_id))];
+          
+          const { data: blockTypes, error: typesError } = await supabase
+            .from("report_block_types")
+            .select("id, with_history")
+            .in("id", blockTypeIds);
+          
+          if (typesError) {
+            console.error("Error fetching block types:", typesError);
+            return {
+              success: false,
+              usage_type: "insufficient",
+              message: "Error checking block types",
+              remaining_reports: 0,
+            };
+          }
+          
+          blockTypesMap = new Map(
+            (blockTypes || []).map((type: any) => [type.id, type])
+          );
+        }
+        
         // Find suitable block (check history support if needed)
         let reportBlock = availableBlocks[0];
 
         if (hadHistory) {
           // Find block that supports history
           const historyBlock = availableBlocks.find(
-            (block: any) => block.report_block_type.with_history
+            (block: any) => {
+              const blockType = blockTypesMap.get(block.report_block_type_id);
+              return blockType?.with_history;
+            }
           );
 
           if (!historyBlock) {
@@ -594,16 +675,10 @@ export async function getActiveReportBlocks(
   userId: string
 ): Promise<ReportBlock[]> {
   try {
+    // Step 1: Get report blocks
     const { data: allBlocks, error } = await supabase
       .from("report_blocks")
-      .select(`
-        *,
-        report_block_type:report_block_types(
-          block_size,
-          with_history,
-          price
-        )
-      `)
+      .select("*")
       .eq("user_id", userId)
       .eq("is_active", true)
       .gt("expiry_date", new Date().toISOString())
@@ -618,8 +693,37 @@ export async function getActiveReportBlocks(
     const blocks = allBlocks?.filter(
       (block: any) => block.reports_used < block.reports_total
     ) || [];
+    
+    if (blocks.length === 0) {
+      return [];
+    }
+    
+    // Step 2: Get unique block type IDs
+    const blockTypeIds = [...new Set(blocks.map((b: any) => b.report_block_type_id))];
+    
+    // Step 3: Fetch block types separately
+    const { data: blockTypes, error: typesError } = await supabase
+      .from("report_block_types")
+      .select("id, block_size, with_history, price")
+      .in("id", blockTypeIds);
+    
+    if (typesError) {
+      console.error("Error fetching block types:", typesError);
+      return blocks as ReportBlock[];
+    }
+    
+    // Step 4: Map block types to blocks
+    const blockTypesMap = new Map(
+      (blockTypes || []).map((type: any) => [type.id, type])
+    );
+    
+    // Step 5: Combine blocks with their types
+    const enrichedBlocks = blocks.map((block: any) => ({
+      ...block,
+      report_block_type: blockTypesMap.get(block.report_block_type_id) || null,
+    }));
 
-    return blocks as ReportBlock[];
+    return enrichedBlocks as ReportBlock[];
   } catch (error) {
     console.error("Error fetching report blocks:", error);
     return [];
@@ -671,12 +775,10 @@ export async function getSubscriptionWithPlan(
   userId: string
 ): Promise<{ subscription: Subscription; plan: Plan } | null> {
   try {
+    // Step 1: Get subscription
     const { data: subscription, error: subError } = await supabase
       .from("subscriptions")
-      .select(`
-        *,
-        plan:plans(*)
-      `)
+      .select("*")
       .eq("user_id", userId)
       .eq("status", "active")
       .maybeSingle();
@@ -684,10 +786,22 @@ export async function getSubscriptionWithPlan(
     if (subError || !subscription) {
       return null;
     }
+    
+    // Step 2: Get plan details separately
+    const { data: plan, error: planError } = await supabase
+      .from("plans")
+      .select("*")
+      .eq("id", subscription.plan_id)
+      .single();
+    
+    if (planError || !plan) {
+      console.error("Error fetching plan:", planError);
+      return null;
+    }
 
     return {
       subscription: subscription as Subscription,
-      plan: subscription.plan as Plan,
+      plan: plan as Plan,
     };
   } catch (error) {
     console.error("Error getting subscription with plan:", error);
