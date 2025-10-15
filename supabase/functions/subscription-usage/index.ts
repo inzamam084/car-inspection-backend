@@ -57,8 +57,8 @@ Deno.serve(async (req) => {
 
     const features =
       plan?.plan_features
-        ?.sort((a, b) => a.position - b.position)
-        .map((f) => f.feature) || [];
+        ?.sort((a: any, b: any) => a.position - b.position)
+        .map((f: any) => f.feature) || [];
 
     // --- Scheduled plan (optional) ---
     const hasScheduled =
@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
     // --- Payments ---
     const { data: payments } = await supabase
       .from("payments")
-      .select("id, amount, currency, status, type, created_at")
+      .select("*")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(20);
