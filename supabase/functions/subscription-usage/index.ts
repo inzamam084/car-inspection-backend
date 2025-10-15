@@ -1,249 +1,229 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import {
-  checkSubscriptionAccess,
-  getSubscriptionStatus,
-  getUserAvailableReports,
-  getActiveReportBlocks,
-  getActivePlans,
-  getPlanById,
-  getCurrentUsageSummary,
-} from "../shared/subscription-utils.ts";
+import { differenceInCalendarDays } from "https://esm.sh/date-fns@3.6.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
-/**
- * Edge Function:  subscription-usage
- * 
- * Returns comprehensive subscription details including:
- * - Active subscription status and plan details
- * - Usage statistics (used/remaining reports)
- * - Available report blocks
- * - Billing period information
- * - Available plans for upgrades
- * 
- * Authentication: Required (JWT token)
- * 
- * Response Format:
- * {
- *   user_id: string;
- *   subscription: {
- *     status: "active" | "past_due" | "canceled" | "trialing" | "inactive";
- *     plan: Plan | null;
- *     current_period_start: string | null;
- *     current_period_end: string | null;
- *     cancel_at_period_end: boolean;
- *     days_until_renewal: number;
- *     is_annual: boolean;
- *   };
- *   usage: {
- *     subscription_reports: {
- *       included: number;
- *       used: number;
- *       available: number;
- *       billing_period_start: string | null;
- *       billing_period_end: string | null;
- *     };
- *     block_reports: {
- *       total_available: number;
- *       blocks: Array<{
- *         id: string;
- *         reports_remaining: number;
- *         expiry_date: string;
- *         with_history: boolean;
- *       }>;
- *     };
- *     total_available: number;
- *     can_create_report: boolean;
- *   };
- *   available_plans: Plan[];
- *   timestamp: string;
- * }
- */
-
-interface SubscriptionUsageResponse {
-  user_id: string;
-  subscription: {
-    status: "active" | "past_due" | "canceled" | "trialing" | "inactive";
-    plan: any | null;
-    current_period_start: string | null;
-    current_period_end: string | null;
-    cancel_at_period_end: boolean;
-    days_until_renewal: number;
-    is_annual: boolean;
-  };
-  usage: {
-    subscription_reports: {
-      included: number;
-      used: number;
-      available: number;
-      billing_period_start: string | null;
-      billing_period_end: string | null;
-    };
-    block_reports: {
-      total_available: number;
-      blocks: Array<{
-        id: string;
-        reports_remaining: number;
-        expiry_date: string;
-        with_history: boolean;
-      }>;
-    };
-    total_available: number;
-    can_create_report: boolean;
-  };
-  available_plans: any[];
-  timestamp: string;
-}
-
-Deno.serve(async (req: Request) => {
-  // Handle CORS preflight requests
-  if (req.method === "OPTIONS") {
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS")
     return new Response("ok", { headers: corsHeaders });
-  }
 
   try {
-    // Get the authorization header
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("No authorization header");
-    }
+    if (!authHeader) throw new Error("Missing Authorization header");
 
-    // Create Supabase client with user's token for auth
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!supabaseUrl || !supabaseAnonKey)
+      throw new Error("Supabase environment variables missing");
 
-    if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error("Missing Supabase environment variables");
-    }
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-    // Get the user from the JWT token
+    // --- Authenticate user ---
+    const token = authHeader.replace("Bearer ", "");
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
+    } = await supabase.auth.getUser(token);
+    if (userError || !user) throw new Error("Invalid user token");
+    const userId = user.id;
 
-    if (userError || !user) {
-      throw new Error("Invalid user token");
-    }
+    // --- Subscription ---
+    const { data: subs } = await supabase
+      .from("subscriptions")
+      .select("*")
+      .eq("user_id", userId)
+      .in("status", ["active", "trialing", "past_due"])
+      .limit(1);
+    const sub = subs?.[0] || null;
 
-    console.log("Fetching subscription usage for user:", user.id);
+    // --- Plan ---
+    const plan =
+      sub &&
+      (
+        await supabase
+          .from("plans")
+          .select("*, plan_features(feature,position)")
+          .eq("id", sub.plan_id)
+          .maybeSingle()
+      ).data;
 
-    // Get subscription status
-    const subscriptionStatus = await getSubscriptionStatus(user.id);
-    console.log("Subscription status:", subscriptionStatus);
+    const features =
+      plan?.plan_features
+        ?.sort((a, b) => a.position - b.position)
+        .map((f) => f.feature) || [];
 
-    // Get available reports (subscription + blocks)
-    const availableReports = await getUserAvailableReports(user.id);
-    console.log("Available reports:", availableReports);
+    // --- Scheduled plan (optional) ---
+    const hasScheduled =
+      !!sub?.scheduled_plan_id && !!sub?.scheduled_change_date;
 
-    // Get active report blocks
-    const activeBlocks = await getActiveReportBlocks(user.id);
-    console.log("Active blocks:", activeBlocks);
+    // --- Usage summary ---
+    const { data: usageRows } = await supabase
+      .from("subscription_usage_summary")
+      .select("*")
+      .eq("subscription_id", sub?.id || "")
+      .order("billing_period_start", { ascending: false })
+      .limit(1);
+    const usage = usageRows?.[0] || null;
 
-    // Get plan details if subscription exists
-    let planDetails = null;
-    let usageSummary = null;
-    let isAnnual = false;
+    // --- Report blocks ---
+    const { data: blocksRaw } = await supabase
+      .from("report_blocks")
+      .select("*, report_block_types(with_history)")
+      .eq("user_id", userId)
+      .eq("is_active", true);
 
-    if (subscriptionStatus.subscription) {
-      planDetails = await getPlanById(subscriptionStatus.subscription.plan_id);
-      isAnnual = subscriptionStatus.subscription.is_annual;
+    const now = new Date();
+    const blocks =
+      (blocksRaw || []).filter(
+        (b) => new Date(b.expiry_date) > now && b.reports_used < b.reports_total
+      ) || [];
 
-      // Get current billing period usage
-      if (subscriptionStatus.subscription.id) {
-        usageSummary = await getCurrentUsageSummary(
-          subscriptionStatus.subscription.id
-        );
-      }
-    }
+    // --- Addons ---
+    const { data: addons } = await supabase
+      .from("subscription_addons")
+      .select("addon_type, quantity, price_per_unit")
+      .eq("subscription_id", sub?.id || "")
+      .eq("is_active", true);
 
-    // Get all available plans for upgrade/downgrade options
-    const allPlans = await getActivePlans();
+    // --- Seats ---
+    const { data: seats } = await supabase
+      .from("seats")
+      .select("id, status, user_email")
+      .eq("subscription_id", sub?.id || "")
+      .in("status", ["invited", "active"]);
 
-    // Build response
-    const response: SubscriptionUsageResponse = {
-      user_id: user.id,
-      subscription: {
-        status: subscriptionStatus.subscription?.status || "inactive",
-        plan: planDetails,
-        current_period_start:
-          subscriptionStatus.subscription?.current_period_start || null,
-        current_period_end:
-          subscriptionStatus.subscription?.current_period_end || null,
-        cancel_at_period_end:
-          subscriptionStatus.subscription?.cancel_at_period_end || false,
-        days_until_renewal: subscriptionStatus.daysUntilRenewal,
-        is_annual: isAnnual,
-      },
+    // --- Payments ---
+    const { data: payments } = await supabase
+      .from("payments")
+      .select("id, amount, currency, status, type, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    // === Derived Computations ===
+    const isActive =
+      sub?.status === "active" && new Date(sub.current_period_end) > now;
+    const daysUntilCancel =
+      sub?.cancel_at_period_end && sub.current_period_end
+        ? Math.max(
+            0,
+            differenceInCalendarDays(new Date(sub.current_period_end), now)
+          )
+        : null;
+
+    const included = usage?.reports_included || plan?.included_reports || 0;
+    const used = usage?.reports_used || 0;
+    const remainingPlan =
+      usage?.reports_remaining ?? Math.max(0, included - used);
+    const remainingBlocks = blocks.reduce(
+      (sum, b) => sum + (b.reports_total - b.reports_used),
+      0
+    );
+    const totalRemaining = remainingPlan + remainingBlocks;
+    const usagePct = included ? Math.round((used / included) * 100) : 0;
+
+    const totalBlockReports = blocks.reduce((s, b) => s + b.reports_total, 0);
+    const usedBlockReports = blocks.reduce((s, b) => s + b.reports_used, 0);
+    const expiringSoon = blocks.filter(
+      (b) => differenceInCalendarDays(new Date(b.expiry_date), now) <= 7
+    ).length;
+
+    const totalPaid = (payments || [])
+      .filter((p) => p.status === "succeeded")
+      .reduce((s, p) => s + Number(p.amount), 0);
+
+    // === Response ===
+    const result = {
+      userId,
+      subscription: sub
+        ? {
+            id: sub.id,
+            status: sub.status,
+            isAnnual: sub.is_annual,
+            currentPeriod: {
+              start: sub.current_period_start,
+              end: sub.current_period_end,
+            },
+            scheduledChange: hasScheduled
+              ? {
+                  planId: sub.scheduled_plan_id,
+                  isAnnual: sub.scheduled_is_annual,
+                  changeDate: sub.scheduled_change_date,
+                  stripeScheduleId: sub.stripe_schedule_id,
+                }
+              : null,
+            cancelAtPeriodEnd: sub.cancel_at_period_end,
+            daysUntilCancellation: daysUntilCancel,
+            stripeSubscriptionId: sub.stripe_subscription_id,
+          }
+        : null,
+
+      plan: plan
+        ? {
+            id: plan.id,
+            name: plan.name,
+            monthlyFee: plan.monthly_fee,
+            annualFee: plan.annual_fee,
+            includedReports: plan.included_reports,
+            extraReportPrice: plan.extra_report_price,
+            historyAddonPrice: plan.history_addon_price,
+            includedSeats: plan.included_seats,
+            features,
+          }
+        : null,
+
       usage: {
-        subscription_reports: {
-          included: planDetails?.included_reports || 0,
-          used: usageSummary?.reports_used || 0,
-          available: availableReports.subscription_available,
-          billing_period_start: usageSummary?.billing_period_start || null,
-          billing_period_end: usageSummary?.billing_period_end || null,
-        },
-        block_reports: {
-          total_available: availableReports.blocks_available,
-          blocks: activeBlocks.map((block) => ({
-            id: block.id,
-            reports_remaining: block.reports_total - block.reports_used,
-            expiry_date: block.expiry_date,
-            with_history: block.report_block_type?.with_history || false,
-          })),
-        },
-        total_available: availableReports.total_available,
-        can_create_report: availableReports.total_available > 0,
+        included,
+        used,
+        remainingFromPlan: remainingPlan,
+        totalRemaining,
+        usagePercentage: usagePct,
+        canCreateReport: totalRemaining > 0,
+        billingPeriodStart: usage?.billing_period_start || null,
+        billingPeriodEnd: usage?.billing_period_end || null,
+        lastResetDate: usage?.last_reset_date || null,
       },
-      available_plans: allPlans,
+
+      blocks: {
+        total: blocks.length,
+        used: usedBlockReports,
+        remaining: totalBlockReports - usedBlockReports,
+        expiringSoon,
+        list: blocks.map((b) => ({
+          id: b.id,
+          remaining: b.reports_total - b.reports_used,
+          expiry: b.expiry_date,
+          withHistory: !!b.report_block_types?.with_history,
+        })),
+      },
+
+      billing: {
+        addons: addons || [],
+        seats: seats || [],
+        payments: payments || [],
+        totalPaid,
+      },
+
       timestamp: new Date().toISOString(),
     };
 
-    console.log("Returning subscription usage:", response);
-
-    return new Response(JSON.stringify(response), {
+    return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });
-  } catch (error) {
-    console.error("Error in get-subscription-usage function:", error);
-
+  } catch (err: any) {
+    console.error("subscription-usage error:", err);
     return new Response(
       JSON.stringify({
-        error: error.message || "Internal server error",
-        user_id: null,
-        subscription: {
-          status: "inactive",
-          plan: null,
-          current_period_start: null,
-          current_period_end: null,
-          cancel_at_period_end: false,
-          days_until_renewal: 0,
-          is_annual: false,
-        },
-        usage: {
-          subscription_reports: {
-            included: 0,
-            used: 0,
-            available: 0,
-            billing_period_start: null,
-            billing_period_end: null,
-          },
-          block_reports: {
-            total_available: 0,
-            blocks: [],
-          },
-          total_available: 0,
-          can_create_report: false,
-        },
-        available_plans: [],
+        error: err.message,
         timestamp: new Date().toISOString(),
       }),
       {
