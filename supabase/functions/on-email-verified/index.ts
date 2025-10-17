@@ -102,16 +102,34 @@ serve(async (req: Request) => {
 
     // Prepare the welcome email HTML content
     const emailHtml = `
-Welcome to FixPilot!
+<!DOCTYPE html>
+<html lang="en">
+  <body style="font-family: Arial, sans-serif;">
+    <p>Welcome to <strong>FixPilot!</strong></p>
 
-Download the Chrome extension to run inspections on online auction listings:
-https://chromewebstore.google.com/detail/fixpilot-ai-%E2%80%93-vehicle-rep/gnmbpkihdfolkcepmlbmfpcghgblboao
+    <ol>
+      <li>
+        Download the Chrome extension to run inspections on online auction listings:<br>
+        <a href="https://chromewebstore.google.com/detail/fixpilot-ai-%E2%80%93-vehicle-rep/gnmbpkihdfolkcepmlbmfpcghgblboao">
+          FixPilot Chrome Extension
+        </a>
+      </li>
+      <br>
+      <li>
+        Download the iOS app for inspecting vehicles in person:<br>
+        <a href="https://apps.apple.com/us/app/fixpilot/id6740345560">
+          FixPilot iOS App
+        </a>
+      </li>
+    </ol>
 
-Download the iOS app for inspecting vehicles in person:
-https://apps.apple.com/us/app/fixpilot/id6740345560
+    <p>
+      Happy inspecting!<br>
+      The FixPilot Team
+    </p>
+  </body>
+</html>
 
-Happy inspecting!
-The FixPilot Team
 `;
 
     // Send the welcome email using SMTP2GO or Resend
