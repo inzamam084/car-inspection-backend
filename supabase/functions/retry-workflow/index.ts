@@ -87,11 +87,11 @@ serve(async (req) => {
         "workflow_retry_count",
         supabase.from("inspections").select("workflow_max_retries").single()
       )
-      .or(
-        `workflow_last_retry_at.is.null,workflow_last_retry_at.lt.${new Date(
-          Date.now() - 10 * 60 * 1000 // 10 minutes ago
-        ).toISOString()}`
-      )
+    //   .or(
+    //     `workflow_last_retry_at.is.null,workflow_last_retry_at.lt.${new Date(
+    //       Date.now() - 10 * 60 * 1000 // 10 minutes ago
+    //     ).toISOString()}`
+    //   )
       .order("created_at", { ascending: false })
       .limit(10); // Process 10 inspections at a time
 
