@@ -101,7 +101,7 @@ serve(async (req) => {
       .not("workflow_run_id", "is", null)
       .lt("workflow_retry_count", 3) // Use the integer value directly
       .order("created_at", { ascending: false })
-      .limit(10); // Process 10 inspections at a time
+    //   .limit(10); // Process 10 inspections at a time
 
     if (queryError) {
       throw new Error(`Failed to query inspections: ${queryError.message}`);
