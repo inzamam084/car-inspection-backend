@@ -68,6 +68,22 @@ serve(async (req) => {
     // ========================================================================
     // 1. Find Inspections with Failed Agents that Need Retry
     // ========================================================================
+    // // Get the single workflow_max_retries value
+    // const { data: maxRetriesData, error: maxRetriesError } = await supabase
+    //   .from("inspections")
+    //   .select("workflow_max_retries")
+    //   .single();
+
+    // if (maxRetriesError) {
+    //   throw new Error(`Failed to get max retries: ${maxRetriesError.message}`);
+    // }
+
+    // // Use the actual value for the comparison
+    // const maxRetries = maxRetriesData?.workflow_max_retries;
+    // if (maxRetries === undefined) {
+    //   throw new Error("Max retries value is undefined");
+    // }
+
     const { data: inspectionsNeedingRetry, error: queryError } = await supabase
       .from("inspections")
       .select(
@@ -83,15 +99,7 @@ serve(async (req) => {
       )
       .in("status", ["processing", "failed"])
       .not("workflow_run_id", "is", null)
-      .lt(
-        "workflow_retry_count",
-        supabase.from("inspections").select("workflow_max_retries").single()
-      )
-    //   .or(
-    //     `workflow_last_retry_at.is.null,workflow_last_retry_at.lt.${new Date(
-    //       Date.now() - 10 * 60 * 1000 // 10 minutes ago
-    //     ).toISOString()}`
-    //   )
+      .lt("workflow_retry_count", 3) // Use the integer value directly
       .order("created_at", { ascending: false })
       .limit(10); // Process 10 inspections at a time
 
@@ -131,7 +139,7 @@ serve(async (req) => {
           .from("agent_executions")
           .select("*")
           .eq("inspection_id", inspection.id)
-        //   .eq("workflow_run_id", inspection.workflow_run_id)
+          //   .eq("workflow_run_id", inspection.workflow_run_id)
           .order("agent_name", { ascending: true })
           .order("attempt_number", { ascending: false });
 
