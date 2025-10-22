@@ -68,21 +68,6 @@ serve(async (req) => {
     // ========================================================================
     // 1. Find Inspections with Failed Agents that Need Retry
     // ========================================================================
-    // // Get the single workflow_max_retries value
-    // const { data: maxRetriesData, error: maxRetriesError } = await supabase
-    //   .from("inspections")
-    //   .select("workflow_max_retries")
-    //   .single();
-
-    // if (maxRetriesError) {
-    //   throw new Error(`Failed to get max retries: ${maxRetriesError.message}`);
-    // }
-
-    // // Use the actual value for the comparison
-    // const maxRetries = maxRetriesData?.workflow_max_retries;
-    // if (maxRetries === undefined) {
-    //   throw new Error("Max retries value is undefined");
-    // }
 
     const { data: inspectionsNeedingRetry, error: queryError } = await supabase
       .from("inspections")
