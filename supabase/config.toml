@@ -311,6 +311,9 @@ verify_jwt = false
 [functions.on-email-verified]
 verify_jwt = false
 
+[functions.retry-workflow]
+verify_jwt = false
+
 # [functions.function-call-old]
 # verify_jwt = false
 
