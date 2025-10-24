@@ -98,7 +98,7 @@ const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
  *
  * @constant {number}
  */
-const AGENT_TIMEOUT_MS = 15 * 60 * 1000;
+const AGENT_TIMEOUT_MS = 6 * 60 * 1000;
 
 // ============================================================================
 // Types
@@ -473,6 +473,7 @@ serve(async () => {
             .from("agent_executions")
             .update({
               status: "pending",
+              attempt_number: execution.attempt_number + 1,
               error_message: null,
               error_code: null,
               error_stack: null,
