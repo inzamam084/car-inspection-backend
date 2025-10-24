@@ -202,12 +202,11 @@ serve(async () => {
     //   .not("workflow_run_id", "is", null)
     //   .order("created_at", { ascending: false });
 
-    // Get start of today (midnight)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    // Get current time
+    const now_ = new Date();
 
     // Get yesterday at 8 PM (20:00)
-    const yesterdayNight = new Date(todayStart);
+    const yesterdayNight = new Date(now_);
     yesterdayNight.setDate(yesterdayNight.getDate() - 1);
     yesterdayNight.setHours(20, 0, 0, 0); // 8 PM yesterday
 
@@ -217,7 +216,7 @@ serve(async () => {
       .eq("status", "processing")
       .not("workflow_run_id", "is", null)
       .gte("created_at", yesterdayNight.toISOString()) // ← >= yesterday 8 PM
-      .lt("created_at", todayStart.toISOString()) // ← < today midnight
+      .lte("created_at", now_.toISOString()) // ← <= current time
       .order("created_at", { ascending: false });
 
     if (queryError) {
