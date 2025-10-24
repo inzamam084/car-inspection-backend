@@ -195,11 +195,29 @@ serve(async () => {
     // - Only processing inspections can have stuck/failed agents
     // - workflow_run_id ensures workflow has actually started
     // - Most recent first prioritizes active workflows
+    // const { data: inspectionsNeedingCheck, error: queryError } = await supabase
+    //   .from("inspections")
+    //   .select("id, workflow_run_id, status, vin")
+    //   .eq("status", "processing")
+    //   .not("workflow_run_id", "is", null)
+    //   .order("created_at", { ascending: false });
+
+    // Get start of today (midnight)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    // Get yesterday at 8 PM (20:00)
+    const yesterdayNight = new Date(todayStart);
+    yesterdayNight.setDate(yesterdayNight.getDate() - 1);
+    yesterdayNight.setHours(20, 0, 0, 0); // 8 PM yesterday
+
     const { data: inspectionsNeedingCheck, error: queryError } = await supabase
       .from("inspections")
       .select("id, workflow_run_id, status, vin")
       .eq("status", "processing")
       .not("workflow_run_id", "is", null)
+      .gte("created_at", yesterdayNight.toISOString()) // ← >= yesterday 8 PM
+      .lt("created_at", todayStart.toISOString()) // ← < today midnight
       .order("created_at", { ascending: false });
 
     if (queryError) {
