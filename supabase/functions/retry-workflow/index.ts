@@ -98,7 +98,7 @@ const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
  *
  * @constant {number}
  */
-const AGENT_TIMEOUT_MS = 6 * 60 * 1000;
+const AGENT_TIMEOUT_MS = 8 * 60 * 1000;
 
 // ============================================================================
 // Types
@@ -470,9 +470,6 @@ serve(async () => {
         const retriedExecutions = [];
 
         for (const execution of allProblematicAgents) {
-          // Safety check: Verify we haven't exceeded max retries
-          // This should already be filtered in step 2.3, but we double-check
-          // to prevent edge cases where max_retries might have changed
           if (execution.attempt_number >= execution.max_retries) {
             console.log(
               `[Retry Workflow] Skipping ${execution.agent_name} - max retries (${execution.max_retries}) reached`
@@ -480,12 +477,6 @@ serve(async () => {
             continue;
           }
 
-          // Update existing execution record back to pending status
-          // This resets the agent for retry:
-          // - status: "pending" (ready for Dify to pick up)
-          // - Clear error fields (fresh start)
-          // - Keep attempt_number same (increments when agent actually runs)
-          // - Keep started_at/completed_at for history
           const { error: updateError } = await supabase
             .from("agent_executions")
             .update({
@@ -503,7 +494,6 @@ serve(async () => {
               updateError
             );
           } else {
-            // Track successful retry setup for response
             retriedExecutions.push({
               agent: execution.agent_name,
               execution_id: execution.id,
@@ -512,6 +502,59 @@ serve(async () => {
             });
             console.log(
               `[Retry Workflow] Reset ${execution.agent_name} to pending (attempt ${execution.attempt_number}/${execution.max_retries})`
+            );
+          }
+        }
+
+        // ====================================================================
+        // Trigger function-call to restart workflow with pending agents
+        // ====================================================================
+        if (retriedExecutions.length > 0) {
+          console.log(
+            `[Retry Workflow] Triggering function-call for inspection ${inspection.id} with ${retriedExecutions.length} retried agents`
+          );
+
+          try {
+            const functionCallResponse = await fetch(
+              `${SUPABASE_URL}/functions/v1/function-call`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+                  "X-Background-Processing": "true",
+                },
+                body: JSON.stringify({
+                  function_name: "car_inspection_workflow",
+                  response_mode: "streaming",
+                  inspection_id: inspection.id,
+                  query: "Retry failed agents in car inspection workflow",
+                  background_mode: true,
+                  is_retry: true,
+                }),
+              }
+            );
+
+            if (!functionCallResponse.ok) {
+              const errorText = await functionCallResponse.text();
+              console.error(
+                `[Retry Workflow] Function-call request failed for inspection ${inspection.id}`,
+                {
+                  status: functionCallResponse.status,
+                  error: errorText,
+                }
+              );
+            } else {
+              const responseData = await functionCallResponse.json();
+              console.log(
+                `[Retry Workflow] Successfully triggered workflow retry for inspection ${inspection.id}`,
+                { response: responseData }
+              );
+            }
+          } catch (error: any) {
+            console.error(
+              `[Retry Workflow] Error triggering function-call for inspection ${inspection.id}:`,
+              error.message
             );
           }
         }
