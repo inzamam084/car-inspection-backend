@@ -3,6 +3,154 @@ import { Database } from "./database.ts";
 import type { Inspection, Photo, OBD2Code, TitleImage } from "./schemas.ts";
 import { RequestContext } from "./logging.ts";
 
+// Retry configuration for image categorization
+interface RetryConfig {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  backoffMultiplier: number;
+}
+
+const CATEGORIZE_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3, // Total of 4 attempts (initial + 3 retries)
+  baseDelayMs: 1000, // Start with 1 second
+  maxDelayMs: 10000, // Cap at 10 seconds
+  backoffMultiplier: 2, // Exponential backoff: 1s, 2s, 4s
+};
+
+/**
+ * Determine if an error is retryable based on HTTP status or error type
+ */
+function isRetryableError(error: unknown, httpStatus?: number): boolean {
+  // Retry on 5xx server errors
+  if (httpStatus && httpStatus >= 500) {
+    return true;
+  }
+
+  // Retry on specific error patterns
+  const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  
+  const retryablePatterns = [
+    "timeout",
+    "timed out",
+    "network",
+    "econnreset",
+    "econnrefused",
+    "socket hang up",
+    "temporary",
+    "unavailable",
+    "502 bad gateway",
+    "503 service unavailable",
+    "504 gateway timeout",
+    "boot_error",
+    "function failed to start",
+  ];
+
+  return retryablePatterns.some(pattern => errorMessage.includes(pattern));
+}
+
+/**
+ * Execute an operation with exponential backoff retry logic
+ */
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  operationName: string,
+  ctx?: RequestContext,
+  config: RetryConfig = CATEGORIZE_RETRY_CONFIG
+): Promise<{ result: T; attempts: number }> {
+  let lastError: Error;
+  let attempt = 0;
+
+  while (attempt <= config.maxRetries) {
+    try {
+      if (attempt > 0) {
+        const delay = Math.min(
+          config.baseDelayMs * Math.pow(config.backoffMultiplier, attempt - 1),
+          config.maxDelayMs
+        );
+
+        if (ctx) {
+          ctx.info(`Retrying ${operationName}`, {
+            attempt: attempt + 1,
+            total_attempts: config.maxRetries + 1,
+            delay_ms: delay,
+          });
+        } else {
+          console.log(`Retrying ${operationName} (attempt ${attempt + 1}/${config.maxRetries + 1}) after ${delay}ms`);
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+
+      const result = await operation();
+      
+      if (attempt > 0) {
+        if (ctx) {
+          ctx.info(`${operationName} succeeded after ${attempt + 1} attempts`);
+        } else {
+          console.log(`✅ ${operationName} succeeded after ${attempt + 1} attempts`);
+        }
+      }
+      
+      return { result, attempts: attempt + 1 };
+    } catch (error: unknown) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      attempt++;
+
+      // Extract HTTP status if available
+      const httpStatus = error && typeof error === 'object' && 'httpStatus' in error
+        ? (error as { httpStatus: number }).httpStatus
+        : undefined;
+      const shouldRetry = isRetryableError(error, httpStatus);
+
+      if (attempt > config.maxRetries) {
+        if (ctx) {
+          ctx.error(
+            `${operationName} failed after ${attempt} attempts`,
+            {
+              error: lastError.message,
+              total_attempts: attempt,
+            }
+          );
+        } else {
+          console.error(`❌ ${operationName} failed after ${attempt} attempts:`, lastError.message);
+        }
+        throw lastError;
+      }
+
+      if (!shouldRetry) {
+        if (ctx) {
+          ctx.warn(
+            `${operationName} failed with non-retryable error`,
+            {
+              error: lastError.message,
+              attempt,
+            }
+          );
+        } else {
+          console.warn(`⚠️  ${operationName} failed with non-retryable error:`, lastError.message);
+        }
+        throw lastError;
+      }
+
+      if (ctx) {
+        ctx.warn(`${operationName} failed, will retry`, {
+          attempt,
+          error: lastError.message,
+          next_retry_in_ms: Math.min(
+            config.baseDelayMs * Math.pow(config.backoffMultiplier, attempt - 1),
+            config.maxDelayMs
+          ),
+        });
+      } else {
+        console.warn(`⚠️  ${operationName} failed, will retry:`, lastError.message);
+      }
+    }
+  }
+
+  throw lastError!;
+}
+
 /**
  * Categorize images by calling the categorize-image endpoint concurrently
  */
@@ -39,49 +187,59 @@ async function categorizeImagesConcurrently(
     categorizePromises.push(
       (async () => {
         try {
-          const response = await fetch(
-            `${SUPABASE_CONFIG.url}/functions/v1/categorize-image`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
-              },
-              body: JSON.stringify({
-                image_url: photo.path,
-                image_id: photo.id,
-                image_type: "photo",
-                inspection_id: inspectionId,
-                user_id: userId,
-                inspection_type: inspectionType,
-              }),
-            }
+          // Use retry logic for categorization
+          const { result, attempts } = await retryWithBackoff(
+            async () => {
+              const response = await fetch(
+                `${SUPABASE_CONFIG.url}/functions/v1/categorize-image`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+                  },
+                  body: JSON.stringify({
+                    image_url: photo.path,
+                    image_id: photo.id,
+                    image_type: "photo",
+                    inspection_id: inspectionId,
+                    user_id: userId,
+                    inspection_type: inspectionType,
+                  }),
+                }
+              );
+
+              if (!response.ok) {
+                const errorText = await response.text();
+                const error = new Error(
+                  `Categorize-image failed: HTTP ${response.status}: ${errorText}`
+                ) as Error & { httpStatus: number };
+                error.httpStatus = response.status;
+                throw error;
+              }
+
+              return await response.json();
+            },
+            `categorize photo ${photo.id}`,
+            ctx
           );
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(
-              `Categorize-image failed: HTTP ${response.status}: ${errorText}`
-            );
-          }
-
-          const result = await response.json();
 
           if (ctx) {
             ctx.debug(`Photo ${index + 1}/${photos.length} categorized`, {
               photo_id: photo.id,
               category: result.category,
               duration_ms: result.duration_ms,
+              attempts,
             });
           } else {
             console.log(
               `✅ Photo ${index + 1}/${photos.length} categorized as: ${
                 result.category
-              }`
+              } (${attempts} attempt${attempts > 1 ? 's' : ''})`
             );
           }
 
-          return { success: true, ...result };
+          return { success: true, ...result, attempts };
         } catch (error) {
           if (ctx) {
             ctx.error(`Failed to categorize photo ${photo.id}`, {
@@ -115,33 +273,42 @@ async function categorizeImagesConcurrently(
       categorizePromises.push(
         (async () => {
           try {
-            const response = await fetch(
-              `${SUPABASE_CONFIG.url}/functions/v1/categorize-image`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
-                },
-                body: JSON.stringify({
-                  image_url: obd2.screenshot_path,
-                  image_id: obd2.id,
-                  image_type: "obd2",
-                  inspection_id: inspectionId,
-                  user_id: userId,
-                  inspection_type: inspectionType,
-                }),
-              }
+            // Use retry logic for categorization
+            const { result, attempts } = await retryWithBackoff(
+              async () => {
+                const response = await fetch(
+                  `${SUPABASE_CONFIG.url}/functions/v1/categorize-image`,
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+                    },
+                    body: JSON.stringify({
+                      image_url: obd2.screenshot_path,
+                      image_id: obd2.id,
+                      image_type: "obd2",
+                      inspection_id: inspectionId,
+                      user_id: userId,
+                      inspection_type: inspectionType,
+                    }),
+                  }
+                );
+
+                if (!response.ok) {
+                  const errorText = await response.text();
+                  const error = new Error(
+                    `Categorize-image failed: HTTP ${response.status}: ${errorText}`
+                  ) as Error & { httpStatus: number };
+                  error.httpStatus = response.status;
+                  throw error;
+                }
+
+                return await response.json();
+              },
+              `categorize OBD2 ${obd2.id}`,
+              ctx
             );
-
-            if (!response.ok) {
-              const errorText = await response.text();
-              throw new Error(
-                `Categorize-image failed: HTTP ${response.status}: ${errorText}`
-              );
-            }
-
-            const result = await response.json();
 
             if (ctx) {
               ctx.debug(
@@ -151,17 +318,18 @@ async function categorizeImagesConcurrently(
                 {
                   obd2_id: obd2.id,
                   duration_ms: result.duration_ms,
+                  attempts,
                 }
               );
             } else {
               console.log(
                 `✅ OBD2 ${index + 1}/${
                   obd2ImagesWithScreenshots.length
-                } categorized`
+                } categorized (${attempts} attempt${attempts > 1 ? 's' : ''})`
               );
             }
 
-            return { success: true, ...result };
+            return { success: true, ...result, attempts };
           } catch (error) {
             if (ctx) {
               ctx.error(`Failed to categorize OBD2 code ${obd2.id}`, {
@@ -190,33 +358,42 @@ async function categorizeImagesConcurrently(
       categorizePromises.push(
         (async () => {
           try {
-            const response = await fetch(
-              `${SUPABASE_CONFIG.url}/functions/v1/categorize-image`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
-                },
-                body: JSON.stringify({
-                  image_url: titleImage.path,
-                  image_id: titleImage.id,
-                  image_type: "title",
-                  inspection_id: inspectionId,
-                  user_id: userId,
-                  inspection_type: inspectionType,
-                }),
-              }
+            // Use retry logic for categorization
+            const { result, attempts } = await retryWithBackoff(
+              async () => {
+                const response = await fetch(
+                  `${SUPABASE_CONFIG.url}/functions/v1/categorize-image`,
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+                    },
+                    body: JSON.stringify({
+                      image_url: titleImage.path,
+                      image_id: titleImage.id,
+                      image_type: "title",
+                      inspection_id: inspectionId,
+                      user_id: userId,
+                      inspection_type: inspectionType,
+                    }),
+                  }
+                );
+
+                if (!response.ok) {
+                  const errorText = await response.text();
+                  const error = new Error(
+                    `Categorize-image failed: HTTP ${response.status}: ${errorText}`
+                  ) as Error & { httpStatus: number };
+                  error.httpStatus = response.status;
+                  throw error;
+                }
+
+                return await response.json();
+              },
+              `categorize title image ${titleImage.id}`,
+              ctx
             );
-
-            if (!response.ok) {
-              const errorText = await response.text();
-              throw new Error(
-                `Categorize-image failed: HTTP ${response.status}: ${errorText}`
-              );
-            }
-
-            const result = await response.json();
 
             if (ctx) {
               ctx.debug(
@@ -224,15 +401,16 @@ async function categorizeImagesConcurrently(
                 {
                   title_image_id: titleImage.id,
                   duration_ms: result.duration_ms,
+                  attempts,
                 }
               );
             } else {
               console.log(
-                `✅ Title image ${index + 1}/${titleImages.length} categorized`
+                `✅ Title image ${index + 1}/${titleImages.length} categorized (${attempts} attempt${attempts > 1 ? 's' : ''})`
               );
             }
 
-            return { success: true, ...result };
+            return { success: true, ...result, attempts };
           } catch (error) {
             if (ctx) {
               ctx.error(`Failed to categorize title image ${titleImage.id}`, {
