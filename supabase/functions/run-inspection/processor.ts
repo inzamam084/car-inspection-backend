@@ -163,9 +163,9 @@ async function callDifyWorkflow(
   ctx?: RequestContext
 ): Promise<any> {
   try {
-    if (!DIFY_CONFIG.apiKey) {
-      throw new Error("DIFY_API_KEY not configured");
-    }
+    // if (!DIFY_CONFIG.apiKey) {
+    //   throw new Error("DIFY_API_KEY not configured");
+    // }
 
     if (ctx) {
       ctx.info("Calling Dify workflow", {
