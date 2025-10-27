@@ -854,9 +854,9 @@ async function compressImageIfNeeded(
     });
 
     return compressionResult.compressedUrl;
-  } catch (error) {
+  } catch (error: unknown) {
     logWarn("Error during compression attempt, using original URL", {
-      error: (error as Error).message,
+      error: error instanceof Error ? error.message : String(error),
       original_url: imageUrl,
     });
     return imageUrl;
