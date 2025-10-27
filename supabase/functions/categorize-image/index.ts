@@ -750,6 +750,120 @@ async function updateTitleImageWithAnalysis(
 }
 
 // =============================================================
+// Image Compression
+// =============================================================
+
+/**
+ * Interface for the compression API response
+ */
+interface CompressionApiResponse {
+  success: boolean;
+  compressedUrl: string;
+  storagePath: string;
+  imageDetails: {
+    originalSize: number;
+    compressedSize: number;
+    width: number;
+    height: number;
+    format: string;
+    compressionRatio: number;
+  };
+  message: string;
+}
+
+/**
+ * Helper function to compress image if it's larger than 5MB
+ * Uses external compression API: https://fixpilot.ai/api/compress-image
+ */
+async function compressImageIfNeeded(
+  imageUrl: string
+): Promise<string> {
+  try {
+    // First check if we need to compress by getting file size
+    const headResponse = await fetch(imageUrl, { method: "HEAD" });
+    const contentLength = headResponse.headers.get("content-length");
+    const fileSize = contentLength ? parseInt(contentLength) : 0;
+
+    const maxSizeBytes = 5 * 1024 * 1024; // 5MB
+
+    if (fileSize <= maxSizeBytes) {
+      logInfo("Image size is acceptable, no compression needed", {
+        file_size_mb: Math.round((fileSize / 1024 / 1024) * 100) / 100,
+      });
+      return imageUrl; // Return original URL if under 5MB
+    }
+
+    logInfo("Image size exceeds 5MB, compressing...", {
+      original_size_mb: Math.round((fileSize / 1024 / 1024) * 100) / 100,
+    });
+
+    // Call external compression API
+    const compressionPayload = {
+      imageUrl: imageUrl,
+      quality: 80,
+    };
+
+    const compressionResponse = await fetch(
+      "https://fixpilot.ai/api/compress-image",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(compressionPayload),
+      }
+    );
+
+    if (!compressionResponse.ok) {
+      const errorText = await compressionResponse.text();
+      logWarn("Compression API failed, using original URL", {
+        status: compressionResponse.status,
+        error: errorText,
+        original_url: imageUrl,
+      });
+      return imageUrl;
+    }
+
+    const compressionResult: CompressionApiResponse =
+      await compressionResponse.json();
+
+    if (!compressionResult.success || !compressionResult.compressedUrl) {
+      logWarn(
+        "Compression API returned unsuccessful result, using original URL",
+        {
+          result: compressionResult,
+          original_url: imageUrl,
+        }
+      );
+      return imageUrl;
+    }
+
+    logInfo("Successfully compressed image using external API", {
+      original_url: imageUrl,
+      compressed_url: compressionResult.compressedUrl,
+      original_size_mb:
+        Math.round(
+          (compressionResult.imageDetails.originalSize / 1024 / 1024) * 100
+        ) / 100,
+      compressed_size_mb:
+        Math.round(
+          (compressionResult.imageDetails.compressedSize / 1024 / 1024) * 100
+        ) / 100,
+      compression_ratio: compressionResult.imageDetails.compressionRatio,
+      message: compressionResult.message,
+    });
+
+    return compressionResult.compressedUrl;
+  } catch (error) {
+    logWarn("Error during compression attempt, using original URL", {
+      error: (error as Error).message,
+      original_url: imageUrl,
+    });
+    return imageUrl;
+  }
+}
+
+// =============================================================
 // Function Call with Fallback
 // =============================================================
 
@@ -925,11 +1039,14 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // --- Compress image if needed (>5MB) ---
+    const processedImageUrl = await compressImageIfNeeded(image_url);
+
     // --- Invoke function-call Edge Function with fallback support ---
     const { data, attempts, functionUsed } = await callFunctionWithFallback(
       supabaseUrl,
       supabaseServiceKey,
-      image_url,
+      processedImageUrl,
       inspection_id,
       user_id
     );
