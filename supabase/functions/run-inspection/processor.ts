@@ -165,6 +165,127 @@ async function retryWithBackoff<T>(
   throw lastError!;
 }
 
+// Interface for the compression API response
+interface CompressionApiResponse {
+  success: boolean;
+  compressedUrl: string;
+  storagePath: string;
+  imageDetails: {
+    originalSize: number;
+    compressedSize: number;
+    width: number;
+    height: number;
+    format: string;
+    compressionRatio: number;
+  };
+  message: string;
+}
+
+/**
+ * Helper function to compress image if it's larger than 4MB
+ * Uses external compression API: https://fixpilot.ai/api/compress-image
+ */
+async function compressImageIfNeeded(
+  imageUrl: string,
+  ctx?: RequestContext
+): Promise<string> {
+  try {
+    // First check if we need to compress by getting file size
+    const headResponse = await fetch(imageUrl, { method: "HEAD" });
+    const contentLength = headResponse.headers.get("content-length");
+    const fileSize = contentLength ? parseInt(contentLength) : 0;
+
+    const maxSizeBytes = 4 * 1024 * 1024; // 4MB
+
+    if (fileSize <= maxSizeBytes) {
+      if (ctx) {
+        ctx.info("Image size is acceptable, no compression needed", {
+          file_size_mb: Math.round((fileSize / 1024 / 1024) * 100) / 100,
+        });
+      }
+      return imageUrl; // Return original URL if under 4MB
+    }
+
+    if (ctx) {
+      ctx.info("Image size exceeds 4MB, compressing...", {
+        original_size_mb: Math.round((fileSize / 1024 / 1024) * 100) / 100,
+      });
+    }
+
+    // Call external compression API
+    const compressionPayload = {
+      imageUrl: imageUrl,
+      quality: 80,
+    };
+
+    const compressionResponse = await fetch(
+      "https://fixpilot.ai/api/compress-image",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(compressionPayload),
+      }
+    );
+
+    if (!compressionResponse.ok) {
+      const errorText = await compressionResponse.text();
+      if (ctx) {
+        ctx.warn("Compression API failed, using original URL", {
+          status: compressionResponse.status,
+          error: errorText,
+          original_url: imageUrl,
+        });
+      }
+      return imageUrl;
+    }
+
+    const compressionResult: CompressionApiResponse =
+      await compressionResponse.json();
+
+    if (!compressionResult.success || !compressionResult.compressedUrl) {
+      if (ctx) {
+        ctx.warn(
+          "Compression API returned unsuccessful result, using original URL",
+          {
+            result: compressionResult,
+            original_url: imageUrl,
+          }
+        );
+      }
+      return imageUrl;
+    }
+
+    if (ctx) {
+      ctx.info("Successfully compressed image using external API", {
+        original_url: imageUrl,
+        compressed_url: compressionResult.compressedUrl,
+        original_size_mb:
+          Math.round(
+            (compressionResult.imageDetails.originalSize / 1024 / 1024) * 100
+          ) / 100,
+        compressed_size_mb:
+          Math.round(
+            (compressionResult.imageDetails.compressedSize / 1024 / 1024) * 100
+          ) / 100,
+        compression_ratio: compressionResult.imageDetails.compressionRatio,
+        message: compressionResult.message,
+      });
+    }
+
+    return compressionResult.compressedUrl;
+  } catch (error) {
+    if (ctx) {
+      ctx.warn("Error during compression attempt, using original URL", {
+        error: (error as Error).message,
+        original_url: imageUrl,
+      });
+    }
+    return imageUrl;
+  }
+}
+
 /**
  * Call Dify workflow for image analysis
  */
@@ -181,11 +302,17 @@ async function callDifyWorkflow(
     //   throw new Error("DIFY_API_KEY not configured");
     // }
 
+    // Compress image if needed before sending to Dify
+    const processedImageUrl = await compressImageIfNeeded(imageUrl, ctx);
+
     if (ctx) {
       ctx.info("Calling Dify workflow", {
         image_id: imageId,
         image_type: imageType,
         inspection_id: inspectionId,
+        original_url: imageUrl,
+        processed_url: processedImageUrl,
+        url_changed: imageUrl !== processedImageUrl,
       });
     }
 
@@ -200,7 +327,7 @@ async function callDifyWorkflow(
           image: {
             type: "image",
             transfer_method: "remote_url",
-            url: imageUrl,
+            url: processedImageUrl,
           },
           inspection_id: inspectionId,
           user_id: userId,
