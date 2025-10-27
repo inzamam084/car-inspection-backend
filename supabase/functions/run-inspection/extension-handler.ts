@@ -4,7 +4,7 @@ import { runInBackground } from "./utils.ts";
 import { Database } from "./database.ts";
 import type { ExtensionVehicleData } from "./schemas.ts";
 import { RequestContext } from "./logging.ts";
-import { SUPABASE_CONFIG } from "./config.ts";
+import { SUPABASE_CONFIG, DIFY_CONFIG } from "./config.ts";
 
 // Retry configuration
 const RETRY_CONFIG = {
@@ -87,7 +87,7 @@ interface CompressionApiResponse {
 
 /**
  * Helper function to compress image if it's larger than 2MB
- * Uses external compression API: https://stg.fixpilot.ai/api/compress-image
+ * Uses external compression API: https://fixpilot.ai/api/compress-image
  */
 async function compressImageIfNeeded(
   imageUrl: string,
@@ -178,23 +178,60 @@ async function compressImageIfNeeded(
   }
 }
 
-// Interface for the image data extraction response
-interface ImageDataExtractResponse {
-  Vin: string | null;
-  Fuel: string | null;
-  Make: string | null;
-  Year: number;
-  Model: string | null;
-  Engine: string | null;
-  Mileage: number;
-  Location: string | null;
-  "Body Style": string | null;
-  Drivetrain: string | null;
-  "Title Status": string | null;
-  Transmission: string | null;
-  "Exterior Color": string | null;
-  "Interior Color": string | null;
-  FullImageText: string | null;
+/**
+ * Call Dify workflow for image data extraction from screenshot
+ * Note: The workflow handles all data extraction and database updates
+ */
+async function callDifyWorkflowForScreenshot(
+  screenshotUrl: string,
+  inspectionId: string,
+  userId: string,
+  ctx: RequestContext
+): Promise<void> {
+  ctx.info("Calling Dify workflow for vehicle data extraction", {
+    inspection_id: inspectionId,
+    screenshot_url: screenshotUrl,
+  });
+
+  // Compress the image if needed
+  const processedImageUrl = await compressImageIfNeeded(screenshotUrl, ctx);
+
+  const response = await fetch(`https://api.dify.ai/v1/workflows/run`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer app-DglKtIYlrfPCVnoV7MAeMMRG`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      inputs: {
+        image: {
+          type: "image",
+          transfer_method: "remote_url",
+          url: processedImageUrl,
+        },
+        inspection_id: inspectionId,
+        user_id: userId,
+        type: "categorization", // Type field for categorization flow
+      },
+      response_mode: "blocking",
+      user: userId,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Dify workflow failed: HTTP ${response.status}: ${errorText}`
+    );
+  }
+
+  const result = await response.json();
+
+  ctx.info("Dify workflow completed for vehicle data extraction", {
+    inspection_id: inspectionId,
+    workflow_run_id: result.workflow_run_id,
+    status: result.data?.status,
+  });
 }
 
 /**
@@ -299,6 +336,7 @@ export async function processExtensionData(
       model: vehicleData.model,
       year: vehicleData.year,
       images_count: vehicleData.gallery_images.length,
+      has_page_screenshot: !!vehicleData.page_screenshot?.storageUrl,
       has_extracted_content: !!vehicleData.extracted_content,
     });
 
@@ -342,143 +380,35 @@ export async function processExtensionData(
       inspection_id: inspectionId,
     });
 
-    // Step 2: Extract vehicle data from screenshot using the created inspection ID
-    let extractedVehicleData: ImageDataExtractResponse | null = null;
+    // Step 2: Extract vehicle data from screenshot using Dify workflow
+    // Note: The Dify workflow handles all data extraction and database updates
     if (vehicleData.page_screenshot?.storageUrl) {
-      ctx.info("Extracting vehicle data from page screenshot", {
+      ctx.info("Processing page screenshot using Dify workflow", {
         inspection_id: inspectionId,
         screenshot_url: vehicleData.page_screenshot.storageUrl,
       });
 
       try {
-        // Compress the image if it's larger than 2MB before sending to image_data_extract
-        const processedImageUrl = await compressImageIfNeeded(
-          vehicleData.page_screenshot.storageUrl,
-          ctx
-        );
-
-        const functionCallPayload = {
-          function_name: "image_data_extract",
-          query: "Provide the results with the image url",
-          inspection_id: inspectionId,
-          user_id: ctx.userId,
-          files: [
-            {
-              type: "image",
-              transfer_method: "remote_url",
-              url: processedImageUrl,
-            },
-          ],
-        };
-
-        // Use retry mechanism for the fetch call
-        const result = await retryWithBackoff(
+        // Use retry mechanism for the Dify workflow call
+        await retryWithBackoff(
           async () => {
-            const response = await fetch(
-              `${SUPABASE_CONFIG.url}/functions/v1/function-call`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify(functionCallPayload),
-              }
+            await callDifyWorkflowForScreenshot(
+              vehicleData.page_screenshot!.storageUrl,
+              inspectionId,
+              ctx.userId || "anonymous",
+              ctx
             );
-
-            if (!response.ok) {
-              const errorText = await response.text();
-
-              // Check if it's a Google service issue (502 Bad Gateway)
-              if (
-                response.status >= 500 ||
-                errorText.includes("502 Bad Gateway") ||
-                errorText.includes("PluginDaemonInnerError")
-              ) {
-                throw new Error(
-                  `Temporary service unavailable (${response.status}): Google Vision API may be experiencing issues`
-                );
-              }
-
-              throw new Error(`HTTP ${response.status}: ${errorText}`);
-            }
-
-            const result = await response.json();
-
-            if (!result.success || !result.payload) {
-              throw new Error(
-                `Function call failed: ${JSON.stringify(result)}`
-              );
-            }
-
-            return result;
           },
           ctx,
-          "image_data_extract function call"
+          "Dify workflow for vehicle data extraction"
         );
 
-        // Process the successful result
-        try {
-          // Handle JSON wrapped in markdown code blocks
-          let jsonString = result.payload;
-          if (
-            jsonString.startsWith("```json\n") &&
-            jsonString.endsWith("\n```")
-          ) {
-            jsonString = jsonString.slice(8, -4);
-          } else if (
-            jsonString.startsWith("```\n") &&
-            jsonString.endsWith("\n```")
-          ) {
-            jsonString = jsonString.slice(4, -4);
-          }
-
-          extractedVehicleData = JSON.parse(jsonString);
-          ctx.info("Successfully extracted vehicle data from screenshot", {
-            inspection_id: inspectionId,
-            has_vin: !!extractedVehicleData?.Vin,
-            has_make: !!extractedVehicleData?.Make,
-            has_model: !!extractedVehicleData?.Model,
-            has_year: !!extractedVehicleData?.Year,
-            has_mileage: !!extractedVehicleData?.Mileage,
-          });
-
-          // Step 3: Update the inspection with extracted vehicle data
-          if (extractedVehicleData) {
-            ctx.debug("Updating inspection with extracted vehicle data");
-            try {
-              await Database.updateInspectionStatusWithFields(
-                inspectionId,
-                "pending",
-                {
-                  vehicle_details: extractedVehicleData,
-                  vin: extractedVehicleData.Vin || null,
-                  mileage: extractedVehicleData.Mileage || null,
-                },
-                ctx
-              );
-              ctx.info("Successfully updated inspection with extracted data", {
-                inspection_id: inspectionId,
-              });
-            } catch (updateError) {
-              ctx.warn(
-                "Failed to update inspection with extracted data, continuing",
-                {
-                  inspection_id: inspectionId,
-                  error: (updateError as Error).message,
-                }
-              );
-            }
-          }
-        } catch (parseError) {
-          ctx.error("Failed to parse extracted vehicle data", {
-            inspection_id: inspectionId,
-            error: (parseError as Error).message,
-            payload: result.payload,
-          });
-        }
+        ctx.info("Successfully processed screenshot with Dify workflow", {
+          inspection_id: inspectionId,
+        });
       } catch (error) {
-        ctx.info(
-          "Screenshot data extraction failed after retries - continuing without extracted data",
+        ctx.error(
+          "Screenshot data extraction failed after retries",
           {
             inspection_id: inspectionId,
             error: (error as Error).message,
@@ -500,7 +430,7 @@ export async function processExtensionData(
       }
     }
 
-    // Step 4: Update status to processing and start image processing
+    // Step 3: Update status to processing and start image processing
     ctx.debug("Updating inspection status to processing");
     await StatusManager.updateStatus(inspectionId, "processing");
 
