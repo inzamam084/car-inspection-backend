@@ -28,8 +28,11 @@ function isRetryableError(error: unknown, httpStatus?: number): boolean {
   }
 
   // Retry on specific error patterns
-  const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  
+  const errorMessage =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(error).toLowerCase();
+
   const retryablePatterns = [
     "timeout",
     "timed out",
@@ -46,7 +49,7 @@ function isRetryableError(error: unknown, httpStatus?: number): boolean {
     "function failed to start",
   ];
 
-  return retryablePatterns.some(pattern => errorMessage.includes(pattern));
+  return retryablePatterns.some((pattern) => errorMessage.includes(pattern));
 }
 
 /**
@@ -76,59 +79,66 @@ async function retryWithBackoff<T>(
             delay_ms: delay,
           });
         } else {
-          console.log(`Retrying ${operationName} (attempt ${attempt + 1}/${config.maxRetries + 1}) after ${delay}ms`);
+          console.log(
+            `Retrying ${operationName} (attempt ${attempt + 1}/${
+              config.maxRetries + 1
+            }) after ${delay}ms`
+          );
         }
 
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
 
       const result = await operation();
-      
+
       if (attempt > 0) {
         if (ctx) {
           ctx.info(`${operationName} succeeded after ${attempt + 1} attempts`);
         } else {
-          console.log(`✅ ${operationName} succeeded after ${attempt + 1} attempts`);
+          console.log(
+            `✅ ${operationName} succeeded after ${attempt + 1} attempts`
+          );
         }
       }
-      
+
       return { result, attempts: attempt + 1 };
     } catch (error: unknown) {
       lastError = error instanceof Error ? error : new Error(String(error));
       attempt++;
 
       // Extract HTTP status if available
-      const httpStatus = error && typeof error === 'object' && 'httpStatus' in error
-        ? (error as { httpStatus: number }).httpStatus
-        : undefined;
+      const httpStatus =
+        error && typeof error === "object" && "httpStatus" in error
+          ? (error as { httpStatus: number }).httpStatus
+          : undefined;
       const shouldRetry = isRetryableError(error, httpStatus);
 
       if (attempt > config.maxRetries) {
         if (ctx) {
-          ctx.error(
-            `${operationName} failed after ${attempt} attempts`,
-            {
-              error: lastError.message,
-              total_attempts: attempt,
-            }
-          );
+          ctx.error(`${operationName} failed after ${attempt} attempts`, {
+            error: lastError.message,
+            total_attempts: attempt,
+          });
         } else {
-          console.error(`❌ ${operationName} failed after ${attempt} attempts:`, lastError.message);
+          console.error(
+            `❌ ${operationName} failed after ${attempt} attempts:`,
+            lastError.message
+          );
         }
         throw lastError;
       }
 
       if (!shouldRetry) {
         if (ctx) {
-          ctx.warn(
-            `${operationName} failed with non-retryable error`,
-            {
-              error: lastError.message,
-              attempt,
-            }
-          );
+          ctx.warn(`${operationName} failed with non-retryable error`, {
+            error: lastError.message,
+            attempt,
+          });
         } else {
-          console.warn(`⚠️  ${operationName} failed with non-retryable error:`, lastError.message);
+          console.warn(
+            `⚠️  ${operationName} failed with non-retryable error:`,
+            lastError.message
+          );
         }
         throw lastError;
       }
@@ -138,12 +148,16 @@ async function retryWithBackoff<T>(
           attempt,
           error: lastError.message,
           next_retry_in_ms: Math.min(
-            config.baseDelayMs * Math.pow(config.backoffMultiplier, attempt - 1),
+            config.baseDelayMs *
+              Math.pow(config.backoffMultiplier, attempt - 1),
             config.maxDelayMs
           ),
         });
       } else {
-        console.warn(`⚠️  ${operationName} failed, will retry:`, lastError.message);
+        console.warn(
+          `⚠️  ${operationName} failed, will retry:`,
+          lastError.message
+        );
       }
     }
   }
@@ -178,18 +192,16 @@ async function callDifyWorkflow(
     const response = await fetch(`https://api.dify.ai/v1/workflows/run`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer app-DglKtIYlrfPCVnoV7MAeMMRG`,
+        Authorization: `Bearer app-DglKtIYlrfPCVnoV7MAeMMRG`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         inputs: {
-          images: [
-            {
-              type: "image",
-              transfer_method: "remote_url",
-              url: imageUrl,
-            }
-          ],
+          image: {
+            type: "image",
+            transfer_method: "remote_url",
+            url: imageUrl,
+          },
           inspection_id: inspectionId,
           user_id: userId,
           image_id: imageId,
@@ -262,14 +274,15 @@ async function processImagesWithDifyWorkflow(
       (async () => {
         try {
           const result = await retryWithBackoff(
-            () => callDifyWorkflow(
-              photo.path,
-              photo.id,
-              "photos",
-              inspectionId,
-              userId,
-              ctx
-            ),
+            () =>
+              callDifyWorkflow(
+                photo.path,
+                photo.id,
+                "photos",
+                inspectionId,
+                userId,
+                ctx
+              ),
             `Dify workflow for photo ${photo.id}`,
             ctx
           );
@@ -306,24 +319,30 @@ async function processImagesWithDifyWorkflow(
         (async () => {
           try {
             const result = await retryWithBackoff(
-              () => callDifyWorkflow(
-                obd2.screenshot_path!,
-                obd2.id,
-                "obd2_codes",
-                inspectionId,
-                userId,
-                ctx
-              ),
+              () =>
+                callDifyWorkflow(
+                  obd2.screenshot_path!,
+                  obd2.id,
+                  "obd2_codes",
+                  inspectionId,
+                  userId,
+                  ctx
+                ),
               `Dify workflow for OBD2 ${obd2.id}`,
               ctx
             );
 
             if (ctx) {
-              ctx.debug(`OBD2 ${index + 1}/${obd2ImagesWithScreenshots.length} processed by Dify`, {
-                obd2_id: obd2.id,
-                status: result.result?.status,
-                attempts: result.attempts,
-              });
+              ctx.debug(
+                `OBD2 ${index + 1}/${
+                  obd2ImagesWithScreenshots.length
+                } processed by Dify`,
+                {
+                  obd2_id: obd2.id,
+                  status: result.result?.status,
+                  attempts: result.attempts,
+                }
+              );
             }
 
             return { success: true, ...result };
@@ -347,32 +366,41 @@ async function processImagesWithDifyWorkflow(
         (async () => {
           try {
             const result = await retryWithBackoff(
-              () => callDifyWorkflow(
-                titleImage.path,
-                titleImage.id,
-                "title_images",
-                inspectionId,
-                userId,
-                ctx
-              ),
+              () =>
+                callDifyWorkflow(
+                  titleImage.path,
+                  titleImage.id,
+                  "title_images",
+                  inspectionId,
+                  userId,
+                  ctx
+                ),
               `Dify workflow for title image ${titleImage.id}`,
               ctx
             );
 
             if (ctx) {
-              ctx.debug(`Title image ${index + 1}/${titleImages.length} processed by Dify`, {
-                title_image_id: titleImage.id,
-                status: result.result?.status,
-                attempts: result.attempts,
-              });
+              ctx.debug(
+                `Title image ${index + 1}/${
+                  titleImages.length
+                } processed by Dify`,
+                {
+                  title_image_id: titleImage.id,
+                  status: result.result?.status,
+                  attempts: result.attempts,
+                }
+              );
             }
 
             return { success: true, ...result };
           } catch (error) {
             if (ctx) {
-              ctx.error(`Failed to process title image ${titleImage.id} with Dify`, {
-                error: (error as Error).message,
-              });
+              ctx.error(
+                `Failed to process title image ${titleImage.id} with Dify`,
+                {
+                  error: (error as Error).message,
+                }
+              );
             }
             return { success: false, error: (error as Error).message };
           }
@@ -388,7 +416,8 @@ async function processImagesWithDifyWorkflow(
     (r) => r.status === "fulfilled" && r.value.success
   ).length;
   const failureCount = results.filter(
-    (r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.success)
+    (r) =>
+      r.status === "rejected" || (r.status === "fulfilled" && !r.value.success)
   ).length;
 
   const duration = Date.now() - startTime;
@@ -488,7 +517,7 @@ async function categorizeImagesConcurrently(
             console.log(
               `✅ Photo ${index + 1}/${photos.length} categorized as: ${
                 result.category
-              } (${attempts} attempt${attempts > 1 ? 's' : ''})`
+              } (${attempts} attempt${attempts > 1 ? "s" : ""})`
             );
           }
 
@@ -578,7 +607,7 @@ async function categorizeImagesConcurrently(
               console.log(
                 `✅ OBD2 ${index + 1}/${
                   obd2ImagesWithScreenshots.length
-                } categorized (${attempts} attempt${attempts > 1 ? 's' : ''})`
+                } categorized (${attempts} attempt${attempts > 1 ? "s" : ""})`
               );
             }
 
@@ -659,7 +688,9 @@ async function categorizeImagesConcurrently(
               );
             } else {
               console.log(
-                `✅ Title image ${index + 1}/${titleImages.length} categorized (${attempts} attempt${attempts > 1 ? 's' : ''})`
+                `✅ Title image ${index + 1}/${
+                  titleImages.length
+                } categorized (${attempts} attempt${attempts > 1 ? "s" : ""})`
               );
             }
 
@@ -690,7 +721,8 @@ async function categorizeImagesConcurrently(
     (r) => r.status === "fulfilled" && r.value.success
   ).length;
   const failureCount = results.filter(
-    (r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.success)
+    (r) =>
+      r.status === "rejected" || (r.status === "fulfilled" && !r.value.success)
   ).length;
 
   const duration = Date.now() - startTime;
@@ -772,7 +804,7 @@ export async function runAnalysisInBackground(
         total_images: totalImages,
         inspection_type: inspectionData.type,
       });
-      
+
       try {
         // Process images through Dify workflow
         await processImagesWithDifyWorkflow(
@@ -785,10 +817,13 @@ export async function runAnalysisInBackground(
         );
         ctx.info("Dify workflow image processing completed successfully");
       } catch (error) {
-        ctx.warn("Dify workflow processing failed, trying fallback categorization", {
-          error: (error as Error).message,
-        });
-        
+        ctx.warn(
+          "Dify workflow processing failed, trying fallback categorization",
+          {
+            error: (error as Error).message,
+          }
+        );
+
         // Fallback to categorization if Dify workflow fails
         // try {
         //   await categorizeImagesConcurrently(
@@ -810,25 +845,30 @@ export async function runAnalysisInBackground(
     }
 
     // Trigger function-call with background processing enabled
-    ctx.info("Triggering function-call service for background Dify workflow execution");
-    
+    ctx.info(
+      "Triggering function-call service for background Dify workflow execution"
+    );
+
     try {
-      const functionCallResponse = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/function-call`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
-          "X-Background-Processing": "true", // Signal to function-call to run in background
-        },
-        body: JSON.stringify({
-          function_name: "car_inspection_workflow",
-          response_mode: "streaming",
-          inspection_id: inspectionId,
-          user_id: ctx.userId,
-          query: "Run car inspection analysis workflow",
-          background_mode: true, // Flag to indicate background processing
-        }),
-      });
+      const functionCallResponse = await fetch(
+        `${SUPABASE_CONFIG.url}/functions/v1/function-call`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+            "X-Background-Processing": "true", // Signal to function-call to run in background
+          },
+          body: JSON.stringify({
+            function_name: "car_inspection_workflow",
+            response_mode: "streaming",
+            inspection_id: inspectionId,
+            user_id: ctx.userId,
+            query: "Run car inspection analysis workflow",
+            background_mode: true, // Flag to indicate background processing
+          }),
+        }
+      );
 
       if (!functionCallResponse.ok) {
         const errorText = await functionCallResponse.text();
@@ -846,7 +886,6 @@ export async function runAnalysisInBackground(
       ctx.info("Successfully triggered Dify workflow in background", {
         response: responseData,
       });
-
     } catch (error) {
       ctx.error("Error triggering function-call service", {
         error: (error as Error).message,
