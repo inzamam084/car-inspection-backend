@@ -183,7 +183,7 @@ async function callDifyWorkflow(
       },
       body: JSON.stringify({
         inputs: {
-          image: [
+          images: [
             {
               type: "image",
               transfer_method: "remote_url",
