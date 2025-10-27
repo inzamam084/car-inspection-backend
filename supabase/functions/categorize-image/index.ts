@@ -16,6 +16,7 @@
  * 5. Update the appropriate table for the underlying resource (`photos`, `obd2_codes`, or `title_images`) with the category and LLM analysis.
  * 6. Apply protective rules when the inspection is an `extension` or `detail` type, so as not to overwrite
  *    higher-quality data (e.g., do not overwrite a meaningful VIN with a lower-quality one).
+ * 7. Fallback mechanism: If `image_details_extraction` fails, automatically retry with `image_details_extraction_v2` which uses a different model.
  *
  * ## Retry Logic
  * - Automatic retry with exponential backoff on function-call failures
@@ -23,6 +24,7 @@
  * - Backoff delays: 1s, 2s, 4s
  * - Only retries on temporary errors (5xx, timeouts, network issues)
  * - Does not retry on permanent errors (4xx, missing data)
+ * - Function fallback: Attempts with primary function first, then falls back to v2 if all retries fail
  *
  * ## Tables
  * - `inspections`
@@ -49,7 +51,7 @@
  * - Body: `{ image_url: string, image_id: string, image_type?: "photo"|"obd2"|"title", inspection_id: string, user_id?: string, inspection_type?: string }`
  *
  * ## Response (this function)
- * - `200 OK` `{ success: true, image_id, category, confidence, reasoning, has_vehicle_data, duration_ms, attempts }`
+ * - `200 OK` `{ success: true, image_id, category, confidence, reasoning, has_vehicle_data, duration_ms, attempts, function_used }`
  * - `400 Bad Request` when required fields are missing.
  * - `500 Internal Server Error` on any unhandled failure.
  *
@@ -748,6 +750,126 @@ async function updateTitleImageWithAnalysis(
 }
 
 // =============================================================
+// Function Call with Fallback
+// =============================================================
+
+/**
+ * Call the function-call Edge Function with fallback support.
+ * First tries with the primary function, then falls back to v2 if it fails.
+ * 
+ * @param supabaseUrl Supabase URL
+ * @param supabaseServiceKey Service role key
+ * @param imageUrl Image URL to analyze
+ * @param inspectionId Inspection ID
+ * @param userId User ID
+ * @returns Object containing the analysis result, number of attempts, and function used
+ */
+async function callFunctionWithFallback(
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+  imageUrl: string,
+  inspectionId: string,
+  userId?: string
+): Promise<{ data: any; attempts: number; functionUsed: string }> {
+  const functionNames = ["image_details_extraction", "image_details_extraction_v2"];
+  let lastError: Error;
+  let totalAttempts = 0;
+
+  for (const functionName of functionNames) {
+    try {
+      logInfo(`Attempting to call function: ${functionName}`);
+
+      const functionCallPayload = {
+        function_name: functionName,
+        query: "Provide the results with the image url",
+        inspection_id: inspectionId,
+        user_id: userId,
+        files: [
+          {
+            type: "image",
+            transfer_method: "remote_url",
+            url: imageUrl,
+          },
+        ],
+      };
+
+      logDebug("Calling function-call service", {
+        function_name: functionName,
+        inspection_id: inspectionId,
+      });
+
+      const { result: data, attempts } = await retryWithBackoff(
+        async () => {
+          const response = await fetch(`${supabaseUrl}/functions/v1/function-call`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify(functionCallPayload),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            const error = new Error(
+              `Function-call failed: HTTP ${response.status}: ${errorText}`
+            ) as Error & { httpStatus: number };
+            error.httpStatus = response.status;
+            throw error;
+          }
+
+          const data = await response.json();
+
+          if (!data.success || !data.payload) {
+            throw new Error(`Function call failed: ${JSON.stringify(data)}`);
+          }
+
+          return data;
+        },
+        `${functionName} API request`
+      );
+
+      totalAttempts += attempts;
+      
+      logInfo(`Function ${functionName} succeeded`, {
+        attempts,
+        total_attempts: totalAttempts,
+      });
+
+      return { data, attempts: totalAttempts, functionUsed: functionName };
+
+    } catch (error: unknown) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      totalAttempts += RETRY_CONFIG.maxRetries + 1; // Add max attempts for this function
+
+      // If this is not the last function, log and continue to next
+      if (functionName !== functionNames[functionNames.length - 1]) {
+        logWarn(
+          `Function ${functionName} failed after all retries, trying fallback`,
+          {
+            error: lastError.message,
+            next_function: functionNames[functionNames.indexOf(functionName) + 1],
+          }
+        );
+      } else {
+        // This was the last function, throw the error
+        logError(
+          `All functions failed after ${totalAttempts} total attempts`,
+          {
+            error: lastError.message,
+            functions_tried: functionNames,
+          }
+        );
+        throw lastError;
+      }
+    }
+  }
+
+  // This should never be reached, but TypeScript needs it
+  throw lastError!;
+}
+
+// =============================================================
 // Main HTTP handler
 // =============================================================
 
@@ -803,61 +925,19 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // --- Prepare function-call request ---
-    const functionCallPayload = {
-      function_name: "image_details_extraction",
-      query: "Provide the results with the image url",
-      inspection_id: inspection_id,
-      user_id: user_id,
-      files: [
-        {
-          type: "image",
-          transfer_method: "remote_url",
-          url: image_url,
-        },
-      ],
-    };
-
-    logDebug("Calling function-call service", {
-      function_name: functionCallPayload.function_name,
+    // --- Invoke function-call Edge Function with fallback support ---
+    const { data, attempts, functionUsed } = await callFunctionWithFallback(
+      supabaseUrl,
+      supabaseServiceKey,
+      image_url,
       inspection_id,
-    });
-
-    // --- Invoke function-call Edge Function with retry logic ---
-    const { result: data, attempts } = await retryWithBackoff(
-      async () => {
-        const response = await fetch(`${supabaseUrl}/functions/v1/function-call`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${supabaseServiceKey}`,
-          },
-          body: JSON.stringify(functionCallPayload),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          const error = new Error(
-            `Function-call failed: HTTP ${response.status}: ${errorText}`
-          ) as Error & { httpStatus: number };
-          error.httpStatus = response.status;
-          throw error;
-        }
-
-        const data = await response.json();
-
-        if (!data.success || !data.payload) {
-          throw new Error(`Function call failed: ${JSON.stringify(data)}`);
-        }
-
-        return data;
-      },
-      "function-call API request"
+      user_id
     );
 
     logDebug("Function-call response received", {
       payload_length: data.payload.length,
       attempts,
+      function_used: functionUsed,
     });
 
     // --- Parse LLM JSON payload (supports fenced json blocks) ---
@@ -931,6 +1011,7 @@ Deno.serve(async (req) => {
       category,
       duration_ms: duration,
       has_vehicle_data: !!answerJson.vehicle,
+      function_used: functionUsed,
     });
 
     return new Response(
@@ -943,6 +1024,7 @@ Deno.serve(async (req) => {
         has_vehicle_data: !!answerJson.vehicle,
         duration_ms: duration,
         attempts,
+        function_used: functionUsed,
       }),
       {
         status: 200,
