@@ -1,4 +1,3 @@
-import { ImageProcessor, ProcessingMode } from "./image-processor.ts";
 import { runAnalysisInBackground } from "./processor.ts";
 import { StatusManager } from "./status-manager.ts";
 import { runInBackground } from "./utils.ts";
@@ -198,6 +197,94 @@ interface ImageDataExtractResponse {
   FullImageText: string | null;
 }
 
+/**
+ * Upload images concurrently using upload-image endpoint
+ */
+async function uploadImagesConcurrently(
+  imageUrls: string[],
+  inspectionId: string,
+  bucketName: string,
+  approach: string,
+  ctx: RequestContext
+): Promise<{ successCount: number; failedCount: number }> {
+  const startTime = Date.now();
+
+  ctx.info("Starting concurrent image uploads via endpoint", {
+    total_images: imageUrls.length,
+    approach,
+    bucket_name: bucketName,
+  });
+
+  const uploadPromises = imageUrls.map(async (imageUrl, index) => {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/functions/v1/upload-image`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
+          },
+          body: JSON.stringify({
+            image_url: imageUrl,
+            inspection_id: inspectionId,
+            approach: approach,
+            bucket_name: bucketName,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `Upload-image failed: HTTP ${response.status}: ${errorText}`
+        );
+      }
+
+      const result = await response.json();
+
+      ctx.debug(`Image ${index + 1}/${imageUrls.length} uploaded`, {
+        photo_id: result.photo_id,
+        filename: result.filename,
+        file_size: result.file_size,
+        approach_used: result.approach_used,
+        duration_ms: result.duration_ms,
+      });
+
+      return { success: true, ...result };
+    } catch (error) {
+      ctx.error(`Failed to upload image ${index + 1}`, {
+        image_url: imageUrl.substring(0, 50) + "...",
+        error: (error as Error).message,
+      });
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Execute all uploads concurrently
+  const results = await Promise.allSettled(uploadPromises);
+
+  // Process results
+  const successCount = results.filter(
+    (r) => r.status === "fulfilled" && r.value.success
+  ).length;
+  const failedCount = results.filter(
+    (r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.success)
+  ).length;
+
+  const duration = Date.now() - startTime;
+
+  ctx.info("Concurrent image uploads completed", {
+    total_images: imageUrls.length,
+    successful: successCount,
+    failed: failedCount,
+    duration_ms: duration,
+    avg_per_image_ms: Math.round(duration / imageUrls.length),
+  });
+
+  return { successCount, failedCount };
+}
+
 export async function processExtensionData(
   vehicleData: ExtensionVehicleData,
   ctx: RequestContext
@@ -273,13 +360,13 @@ export async function processExtensionData(
         const functionCallPayload = {
           function_name: "image_data_extract",
           query: "Provide the results with the image url",
-          inspection_id: inspectionId, // Now we have a valid inspection ID
+          inspection_id: inspectionId,
           user_id: ctx.userId,
           files: [
             {
               type: "image",
               transfer_method: "remote_url",
-              url: processedImageUrl, // Use the potentially compressed URL
+              url: processedImageUrl,
             },
           ],
         };
@@ -293,7 +380,6 @@ export async function processExtensionData(
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
-                  // Authorization: `Bearer ${SUPABASE_CONFIG.serviceKey}`,
                 },
                 body: JSON.stringify(functionCallPayload),
               }
@@ -338,12 +424,12 @@ export async function processExtensionData(
             jsonString.startsWith("```json\n") &&
             jsonString.endsWith("\n```")
           ) {
-            jsonString = jsonString.slice(8, -4); // Remove ```json\n and \n```
+            jsonString = jsonString.slice(8, -4);
           } else if (
             jsonString.startsWith("```\n") &&
             jsonString.endsWith("\n```")
           ) {
-            jsonString = jsonString.slice(4, -4); // Remove ```\n and \n```
+            jsonString = jsonString.slice(4, -4);
           }
 
           extractedVehicleData = JSON.parse(jsonString);
@@ -362,7 +448,7 @@ export async function processExtensionData(
             try {
               await Database.updateInspectionStatusWithFields(
                 inspectionId,
-                "pending", // Keep status as pending during setup
+                "pending",
                 {
                   vehicle_details: extractedVehicleData,
                   vin: extractedVehicleData.Vin || null,
@@ -389,7 +475,6 @@ export async function processExtensionData(
             error: (parseError as Error).message,
             payload: result.payload,
           });
-          // Continue with null extractedVehicleData - process will continue
         }
       } catch (error) {
         ctx.info(
@@ -413,65 +498,36 @@ export async function processExtensionData(
           }`,
         };
       }
-    } else {
-      ctx.info(
-        "No page screenshot available for vehicle data extraction - failing extension inspection",
-        {
-          inspection_id: inspectionId,
-        }
-      );
-
-      // // Mark inspection as failed due to missing screenshot
-      // await StatusManager.markAsFailed(
-      //   inspectionId,
-      //   "Screenshot analysis required for extension inspections but no screenshot available"
-      // );
-
-      // return {
-      //   success: false,
-      //   error: "Screenshot analysis required for extension inspections but no screenshot was provided",
-      // };
     }
 
     // Step 4: Update status to processing and start image processing
-    // Update status to processing using centralized manager
     ctx.debug("Updating inspection status to processing");
     await StatusManager.updateStatus(inspectionId, "processing");
 
-    // Process images using ImageProcessor
-    const imageProcessor = new ImageProcessor();
-    const lotId = vehicleData.vin || `lot-${Date.now()}`;
-
-    // Use hybrid processing mode for best performance and reliability:
-    // - First attempts streaming (memory-efficient for large images)
-    // - Falls back to parallel buffering for failed streams
-    // - Provides optimal balance of speed, memory usage, and reliability
-    const uploadResults = await imageProcessor.processImages(
+    // Upload images using concurrent upload-image endpoint calls
+    const uploadResults = await uploadImagesConcurrently(
       vehicleData.gallery_images,
-      lotId,
       inspectionId,
       "inspection-photos",
-      ProcessingMode.HYBRID
+      "hybrid", // Use hybrid approach (streaming with buffered fallback)
+      ctx
     );
 
-    const successfulUploads = uploadResults.filter((r) => r.success).length;
-    const failedUploads = uploadResults.filter((r) => !r.success).length;
-
-    ctx.info("Image processing completed", {
-      successful_uploads: successfulUploads,
-      failed_uploads: failedUploads,
+    ctx.info("Image upload processing completed", {
+      successful_uploads: uploadResults.successCount,
+      failed_uploads: uploadResults.failedCount,
     });
 
-    if (successfulUploads === 0) {
+    if (uploadResults.successCount === 0) {
       // Update status to failed if no images were processed
-      ctx.error("No images were successfully processed");
+      ctx.error("No images were successfully uploaded");
       await StatusManager.markAsFailed(
         inspectionId,
-        "No images were successfully processed"
+        "No images were successfully uploaded"
       );
       return {
         success: false,
-        error: "No images were successfully processed",
+        error: "No images were successfully uploaded",
       };
     }
 
