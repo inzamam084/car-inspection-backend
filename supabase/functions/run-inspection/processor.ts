@@ -1,4 +1,4 @@
-import { APP_BASE_URL, SUPABASE_CONFIG } from "./config.ts";
+import { APP_BASE_URL, SUPABASE_CONFIG, DIFY_CONFIG } from "./config.ts";
 import { Database } from "./database.ts";
 import type { Inspection, Photo, OBD2Code, TitleImage } from "./schemas.ts";
 import { RequestContext } from "./logging.ts";
@@ -149,6 +149,259 @@ async function retryWithBackoff<T>(
   }
 
   throw lastError!;
+}
+
+/**
+ * Call Dify workflow for image analysis
+ */
+async function callDifyWorkflow(
+  imageUrl: string,
+  imageId: string,
+  imageType: string,
+  inspectionId: string,
+  userId: string,
+  ctx?: RequestContext
+): Promise<any> {
+  try {
+    if (!DIFY_CONFIG.apiKey) {
+      throw new Error("DIFY_API_KEY not configured");
+    }
+
+    if (ctx) {
+      ctx.info("Calling Dify workflow", {
+        image_id: imageId,
+        image_type: imageType,
+        inspection_id: inspectionId,
+      });
+    }
+
+    const response = await fetch(`https://api.dify.ai/v1/workflows/run`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer app-DglKtIYlrfPCVnoV7MAeMMRG`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        inputs: {
+          image: [
+            {
+              type: "image",
+              transfer_method: "remote_url",
+              url: imageUrl,
+            }
+          ],
+          inspection_id: inspectionId,
+          user_id: userId,
+          image_id: imageId,
+          image_type: imageType,
+        },
+        response_mode: "blocking",
+        user: userId,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Dify workflow failed: HTTP ${response.status}: ${errorText}`
+      );
+    }
+
+    // Handle blocking response - direct JSON
+    const result = await response.json();
+
+    if (ctx) {
+      ctx.info("Dify workflow completed", {
+        image_id: imageId,
+        status: result.data?.status,
+        workflow_run_id: result.workflow_run_id,
+      });
+    }
+
+    return result;
+  } catch (error) {
+    if (ctx) {
+      ctx.error("Dify workflow failed", {
+        error: (error as Error).message,
+        image_id: imageId,
+      });
+    }
+    throw error;
+  }
+}
+
+/**
+ * Process images through Dify workflow concurrently
+ */
+async function processImagesWithDifyWorkflow(
+  photos: Photo[],
+  inspectionId: string,
+  obd2Codes: OBD2Code[],
+  titleImages: TitleImage[],
+  userId: string,
+  ctx?: RequestContext
+): Promise<void> {
+  const startTime = Date.now();
+  const totalImages =
+    photos.length + (obd2Codes?.length || 0) + (titleImages?.length || 0);
+
+  if (ctx) {
+    ctx.info("Starting Dify workflow processing for images", {
+      photos_count: photos.length,
+      obd2_count: obd2Codes?.length || 0,
+      title_images_count: titleImages?.length || 0,
+      total_images: totalImages,
+    });
+  }
+
+  const difyPromises: Promise<any>[] = [];
+
+  // Process regular photos
+  photos.forEach((photo, index) => {
+    difyPromises.push(
+      (async () => {
+        try {
+          const result = await retryWithBackoff(
+            () => callDifyWorkflow(
+              photo.path,
+              photo.id,
+              "photos",
+              inspectionId,
+              userId,
+              ctx
+            ),
+            `Dify workflow for photo ${photo.id}`,
+            ctx
+          );
+
+          if (ctx) {
+            ctx.debug(`Photo ${index + 1}/${photos.length} processed by Dify`, {
+              photo_id: photo.id,
+              status: result.result?.status,
+              attempts: result.attempts,
+            });
+          }
+
+          return { success: true, ...result };
+        } catch (error) {
+          if (ctx) {
+            ctx.error(`Failed to process photo ${photo.id} with Dify`, {
+              error: (error as Error).message,
+            });
+          }
+          return { success: false, error: (error as Error).message };
+        }
+      })()
+    );
+  });
+
+  // Process OBD2 codes with images
+  if (obd2Codes) {
+    const obd2ImagesWithScreenshots = obd2Codes.filter(
+      (obd2) => obd2.code === "IMG" && obd2.screenshot_path
+    );
+
+    obd2ImagesWithScreenshots.forEach((obd2, index) => {
+      difyPromises.push(
+        (async () => {
+          try {
+            const result = await retryWithBackoff(
+              () => callDifyWorkflow(
+                obd2.screenshot_path!,
+                obd2.id,
+                "obd2_codes",
+                inspectionId,
+                userId,
+                ctx
+              ),
+              `Dify workflow for OBD2 ${obd2.id}`,
+              ctx
+            );
+
+            if (ctx) {
+              ctx.debug(`OBD2 ${index + 1}/${obd2ImagesWithScreenshots.length} processed by Dify`, {
+                obd2_id: obd2.id,
+                status: result.result?.status,
+                attempts: result.attempts,
+              });
+            }
+
+            return { success: true, ...result };
+          } catch (error) {
+            if (ctx) {
+              ctx.error(`Failed to process OBD2 ${obd2.id} with Dify`, {
+                error: (error as Error).message,
+              });
+            }
+            return { success: false, error: (error as Error).message };
+          }
+        })()
+      );
+    });
+  }
+
+  // Process title images
+  if (titleImages) {
+    titleImages.forEach((titleImage, index) => {
+      difyPromises.push(
+        (async () => {
+          try {
+            const result = await retryWithBackoff(
+              () => callDifyWorkflow(
+                titleImage.path,
+                titleImage.id,
+                "title_images",
+                inspectionId,
+                userId,
+                ctx
+              ),
+              `Dify workflow for title image ${titleImage.id}`,
+              ctx
+            );
+
+            if (ctx) {
+              ctx.debug(`Title image ${index + 1}/${titleImages.length} processed by Dify`, {
+                title_image_id: titleImage.id,
+                status: result.result?.status,
+                attempts: result.attempts,
+              });
+            }
+
+            return { success: true, ...result };
+          } catch (error) {
+            if (ctx) {
+              ctx.error(`Failed to process title image ${titleImage.id} with Dify`, {
+                error: (error as Error).message,
+              });
+            }
+            return { success: false, error: (error as Error).message };
+          }
+        })()
+      );
+    });
+  }
+
+  // Execute all Dify workflow requests concurrently
+  const results = await Promise.allSettled(difyPromises);
+
+  const successCount = results.filter(
+    (r) => r.status === "fulfilled" && r.value.success
+  ).length;
+  const failureCount = results.filter(
+    (r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.success)
+  ).length;
+
+  const duration = Date.now() - startTime;
+
+  if (ctx) {
+    ctx.info("Dify workflow processing completed", {
+      total_images: totalImages,
+      successful: successCount,
+      failed: failureCount,
+      duration_ms: duration,
+      avg_per_image_ms: Math.round(duration / totalImages),
+    });
+  }
 }
 
 /**
@@ -505,14 +758,14 @@ export async function runAnalysisInBackground(
       inspection_type: inspectionData.type,
     });
 
-    // Categorize images using concurrent calls to categorize-image endpoint
+    // Process images through Dify workflow
     if (
       inspectionData.type !== "url" &&
       (photos.length > 0 || obd2_codes.length > 0 || title_images.length > 0)
     ) {
       const totalImages =
         photos.length + obd2_codes.length + title_images.length;
-      ctx.info("Starting concurrent image categorization via endpoint", {
+      ctx.info("Starting image processing with Dify workflow", {
         photos_count: photos.length,
         obd2_codes_count: obd2_codes.length,
         title_images_count: title_images.length,
@@ -521,20 +774,38 @@ export async function runAnalysisInBackground(
       });
       
       try {
-        await categorizeImagesConcurrently(
+        // Process images through Dify workflow
+        await processImagesWithDifyWorkflow(
           photos,
           inspectionId,
           obd2_codes,
           title_images,
-          inspectionData.type,
-          ctx.userId || undefined,
+          ctx.userId || "anonymous",
           ctx
         );
-        ctx.info("Concurrent image categorization completed successfully");
+        ctx.info("Dify workflow image processing completed successfully");
       } catch (error) {
-        ctx.warn("Image categorization failed, continuing with analysis", {
+        ctx.warn("Dify workflow processing failed, trying fallback categorization", {
           error: (error as Error).message,
         });
+        
+        // Fallback to categorization if Dify workflow fails
+        // try {
+        //   await categorizeImagesConcurrently(
+        //     photos,
+        //     inspectionId,
+        //     obd2_codes,
+        //     title_images,
+        //     inspectionData.type,
+        //     ctx.userId || undefined,
+        //     ctx
+        //   );
+        //   ctx.info("Fallback categorization completed successfully");
+        // } catch (fallbackError) {
+        //   ctx.error("Both Dify and categorization failed", {
+        //     error: (fallbackError as Error).message,
+        //   });
+        // }
       }
     }
 
