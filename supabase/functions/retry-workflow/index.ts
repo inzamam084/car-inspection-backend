@@ -98,7 +98,7 @@ const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
  *
  * @constant {number}
  */
-const AGENT_TIMEOUT_MS = 8 * 60 * 1000;
+const AGENT_TIMEOUT_MS = 15 * 60 * 1000;
 
 // ============================================================================
 // Types
