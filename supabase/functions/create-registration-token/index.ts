@@ -201,19 +201,26 @@ Deno.serve(async (req) => {
         }
       );
 
+      console.log("SMTP2GO Response Status:", emailResponse.status);
+
       if (!emailResponse.ok) {
         const errorText = await emailResponse.text();
         emailError = `SMTP2GO error: ${errorText}`;
-        console.error("SMTP2GO error:", errorText);
+        console.error("SMTP2GO error response:", errorText);
       } else {
         const result = await emailResponse.json();
+        console.log("SMTP2GO result:", JSON.stringify(result, null, 2));
 
         if (result.data && result.data.succeeded > 0) {
           emailSent = true;
           console.log("Email sent successfully to:", recipientEmail);
+        } else if (result.data && result.data.failed > 0) {
+          const failureReason = result.data.failures?.[0]?.error_reason || "Unknown failure reason";
+          emailError = `SMTP2GO failed: ${failureReason}`;
+          console.error("SMTP2GO failure:", failureReason);
         } else {
-          emailError = result.data?.error || "Unknown SMTP2GO error";
-          console.error("SMTP2GO error:", emailError);
+          emailError = result.data?.error || result.error || JSON.stringify(result);
+          console.error("SMTP2GO unexpected response:", result);
         }
       }
     } catch (error) {
