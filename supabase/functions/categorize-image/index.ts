@@ -804,7 +804,7 @@ async function compressImageIfNeeded(
     };
 
     const compressionResponse = await fetch(
-      "https://fixpilot.ai/api/compress-image",
+      "https://stg.fixpilot.ai/api/compress-image",
       {
         method: "POST",
         headers: {

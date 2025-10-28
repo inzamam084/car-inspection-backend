@@ -424,7 +424,7 @@ serve(async (req: Request) => {
     }
 
     // Step 5: Generate share URL
-    const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://fixpilot.ai";
+    const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://stg.fixpilot.ai";
     const shareUrl = `${appBaseUrl}/start?token=${token}`;
 
     console.log("Share URL generated");
