@@ -1,10 +1,10 @@
 -- Migration: Handle registration token on user signup
--- Description: When a new user signs up with a registration token, mark the token as used and create Trial subscription
--- Compatible with subscription-utils.ts and subscription-middleware.ts
+-- Description: Extends existing handle_new_user() function to process registration tokens
+-- This modifies the existing trigger function to add token handling
 
--- Function to handle new user signup with registration token
-CREATE OR REPLACE FUNCTION public.handle_new_user_with_registration_token()
-RETURNS TRIGGER AS $$
+-- Function to process registration token (called by handle_new_user)
+CREATE OR REPLACE FUNCTION public.process_registration_token(p_user_id UUID, p_user_metadata JSONB)
+RETURNS VOID AS $$
 DECLARE
   v_registration_token TEXT;
   v_token_record RECORD;
@@ -14,11 +14,11 @@ DECLARE
   v_billing_period_end DATE;
 BEGIN
   -- Extract registration token from user metadata
-  v_registration_token := NEW.raw_user_meta_data->>'registration_token';
+  v_registration_token := p_user_metadata->>'registration_token';
   
   -- If no registration token, exit early
   IF v_registration_token IS NULL THEN
-    RETURN NEW;
+    RETURN;
   END IF;
 
   -- Get the token record from registration_tokens table
@@ -28,10 +28,10 @@ BEGIN
     AND status = 'active'
     AND expires_at > NOW();
 
-  -- If token not found or invalid, exit (user can still sign up but won't get trial)
+  -- If token not found or invalid, exit
   IF NOT FOUND THEN
-    RAISE NOTICE 'Registration token % not found or invalid for user %', v_registration_token, NEW.id;
-    RETURN NEW;
+    RAISE NOTICE 'Registration token % not found or invalid for user %', v_registration_token, p_user_id;
+    RETURN;
   END IF;
 
   -- Mark token as used
@@ -42,7 +42,7 @@ BEGIN
     updated_at = NOW()
   WHERE token = v_registration_token;
 
-  RAISE NOTICE 'Marked registration token % as used for user %', v_registration_token, NEW.id;
+  RAISE NOTICE 'Marked registration token % as used for user %', v_registration_token, p_user_id;
 
   -- Extract trial duration from token metadata (default 7 days)
   v_trial_days := COALESCE((v_token_record.metadata->>'trial_days')::INTEGER, 7);
@@ -56,8 +56,8 @@ BEGIN
 
   -- If Trial plan doesn't exist, log and exit
   IF v_trial_plan_id IS NULL THEN
-    RAISE WARNING 'Trial plan not found in plans table for user %', NEW.id;
-    RETURN NEW;
+    RAISE WARNING 'Trial plan not found in plans table for user %', p_user_id;
+    RETURN;
   END IF;
 
   -- Calculate billing period
@@ -77,22 +77,21 @@ BEGIN
     created_at,
     updated_at
   ) VALUES (
-    NEW.id,
-    v_trial_plan_id,                    -- Trial plan UUID from plans table
-    'active',                            -- Status is 'active' (required by subscription-utils.ts)
-    NOW(),                               -- current_period_start
-    NOW() + (v_trial_days || ' days')::INTERVAL,  -- current_period_end
-    NULL,                                -- No Stripe subscription for trials
-    false,                               -- Not annual
-    v_billing_period_start,              -- Start date
+    p_user_id,
+    v_trial_plan_id,
+    'active',
+    NOW(),
+    NOW() + (v_trial_days || ' days')::INTERVAL,
+    NULL,
+    false,
+    v_billing_period_start,
     NOW(),
     NOW()
   );
 
-  RAISE NOTICE 'Created Trial subscription for user % with token % (expires in % days)', NEW.id, v_registration_token, v_trial_days;
+  RAISE NOTICE 'Created Trial subscription for user % with token % (expires in % days)', p_user_id, v_registration_token, v_trial_days;
 
   -- Create initial usage summary record for the trial period
-  -- This ensures subscription-utils.ts can track usage correctly
   INSERT INTO public.subscription_usage_summary (
     subscription_id,
     billing_period_start,
@@ -107,43 +106,53 @@ BEGIN
     v_billing_period_start,
     v_billing_period_end,
     p.included_reports,
-    0,  -- Start with 0 reports used
+    0,
     NOW(),
     NOW()
   FROM public.subscriptions s
   JOIN public.plans p ON s.plan_id = p.id
-  WHERE s.user_id = NEW.id
+  WHERE s.user_id = p_user_id
     AND s.plan_id = v_trial_plan_id
   ORDER BY s.created_at DESC
   LIMIT 1;
 
-  RAISE NOTICE 'Created usage summary for Trial subscription for user %', NEW.id;
+  RAISE NOTICE 'Created usage summary for Trial subscription for user %', p_user_id;
 
-  RETURN NEW;
 EXCEPTION
   WHEN OTHERS THEN
-    -- Log the error but don't fail the user creation
-    RAISE WARNING 'Error processing registration token for user %: % (SQLSTATE: %)', NEW.id, SQLERRM, SQLSTATE;
-    RETURN NEW;
+    RAISE WARNING 'Error processing registration token for user %: % (SQLSTATE: %)', p_user_id, SQLERRM, SQLSTATE;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Drop trigger if exists (for migration re-runs)
-DROP TRIGGER IF EXISTS on_auth_user_created_with_token ON auth.users;
-
--- Create trigger on auth.users table
-CREATE TRIGGER on_auth_user_created_with_token
-  AFTER INSERT ON auth.users
-  FOR EACH ROW
-  EXECUTE FUNCTION public.handle_new_user_with_registration_token();
+-- Update the existing handle_new_user function to call our token processor
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Create profile (original functionality)
+    INSERT INTO public.profiles (id, email)
+    VALUES (NEW.id, NEW.email);
+    
+    -- Process registration token if present
+    PERFORM public.process_registration_token(NEW.id, NEW.raw_user_meta_data);
+    
+    RETURN NEW;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Log the error and continue (prevents failed profile creation from blocking user signup)
+        INSERT INTO public.function_logs (function_name, error_message, record_id)
+        VALUES ('handle_new_user', SQLERRM, NEW.id);
+        RETURN NEW;
+END;
+$$ LANGUAGE 'plpgsql' SECURITY DEFINER;
 
 -- Grant necessary permissions
-GRANT EXECUTE ON FUNCTION public.handle_new_user_with_registration_token() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.handle_new_user_with_registration_token() TO service_role;
+GRANT EXECUTE ON FUNCTION public.process_registration_token(UUID, JSONB) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.process_registration_token(UUID, JSONB) TO service_role;
+GRANT EXECUTE ON FUNCTION public.process_registration_token(UUID, JSONB) TO anon;
 
--- Add comment for documentation
-COMMENT ON FUNCTION public.handle_new_user_with_registration_token() IS 
-'Handles new user signup with registration token. Marks token as used, creates Trial plan subscription (from plans table), and initializes usage tracking for compatibility with subscription-utils.ts and subscription-middleware.ts.';
+-- Add comments for documentation
+COMMENT ON FUNCTION public.process_registration_token(UUID, JSONB) IS 
+'Processes registration tokens when new users sign up. Marks token as used, creates Trial plan subscription, and initializes usage tracking.';
 
-COMMENT ON TRIGGER on_auth_user_created_with_token ON auth.users IS 
-'Automatically processes registration tokens when new users sign up, creating Trial subscriptions with proper usage tracking and marking tokens as used.';
+COMMENT ON FUNCTION public.handle_new_user() IS 
+'Handles new user signup by creating profile and processing registration token if present.';
