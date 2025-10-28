@@ -14,3 +14,9 @@ export const SUPABASE_CONFIG = {
   url: supabaseUrl,
   serviceKey: supabaseServiceKey,
 };
+
+// Dify configuration
+export const DIFY_CONFIG = {
+  apiUrl: Deno.env.get("DIFY_API_URL") || "https://api.dify.ai/v1",
+  apiKey: Deno.env.get("DIFY_API_KEY") || "",
+};
