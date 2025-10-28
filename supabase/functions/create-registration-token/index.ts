@@ -139,7 +139,7 @@ Deno.serve(async (req) => {
     try {
       const registrationUrl = `${
         Deno.env.get("APP_BASE_URL") || "http://localhost:3000"
-      }/register?token=${token}`;
+      }/login?token=${token}`;
 
       const smtp2goApiKey = Deno.env.get("SMTP2GO_API_KEY");
       const fromEmail = '"FixMate" <noreply@fixpilot.co>';
