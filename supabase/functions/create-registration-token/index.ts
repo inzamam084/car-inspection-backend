@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
       }/register?token=${token}`;
 
       const smtp2goApiKey = Deno.env.get("SMTP2GO_API_KEY");
-      const fromEmail = '"FixMate" <noreply@fixmate.com>';
+      const fromEmail = '"FixMate" <noreply@fixpilot.ai>';
 
       if (!smtp2goApiKey) {
         throw new Error("SMTP2GO configuration missing");
