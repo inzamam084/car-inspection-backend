@@ -212,9 +212,15 @@ coverage/
 **/secrets.json
 **/config/secrets.*
 **/*secret*
-**/*key*
-**/*token*
+**/*key*.json
+**/*key*.txt
+**/*token*.json
+**/*token*.txt
+**/*token*.env
 **/credentials.*
+
+# But allow migration files with 'token' in the name
+!supabase/migrations/*token*.sql
 
 # Backup files
 *.bak
