@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
       }/register?token=${token}`;
 
       const smtp2goApiKey = Deno.env.get("SMTP2GO_API_KEY");
-      const fromEmail = '"FixMate" <noreply@fixmate.com>';
+      const fromEmail = '"FixMate" <noreply@fixpilot.co>';
 
       if (!smtp2goApiKey) {
         throw new Error("SMTP2GO configuration missing");
@@ -168,7 +168,7 @@ Deno.serve(async (req) => {
               <p>You've been invited to join FixMate. Click the link below to create your account:</p>
               
               <p>
-                <a href="${registrationUrl}" style="display: inline-block; background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px;">Create Your Account</a>
+                <a href="${registrationUrl}" style="display: inline-block; background: #10b77f; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px;">Create Your Account</a>
               </p>
               
               <p>Your registration link expires on: ${expiresAt.toLocaleDateString(
