@@ -320,6 +320,12 @@ verify_jwt = false
 [functions.retry-workflow]
 verify_jwt = false
 
+[functions.create-registration-token]
+verify_jwt = true
+
+[functions.validate-registration-token]
+verify_jwt = false
+
 # [functions.function-call-old]
 # verify_jwt = false
 
