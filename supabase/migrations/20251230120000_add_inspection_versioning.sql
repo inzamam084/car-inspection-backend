@@ -9,14 +9,58 @@ ALTER TABLE public.inspections
 ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
 
 -- ============================================================================
--- 2. Create unique constraint for user_id + vin + version
+-- 2. Fix existing duplicate data before creating unique constraint
+-- ============================================================================
+-- This updates existing inspections to have proper sequential versions
+-- For each user+vin combination, assigns versions 1, 2, 3, etc. based on creation date
+
+DO $$
+DECLARE
+    inspection_record RECORD;
+    version_counter INTEGER;
+BEGIN
+    -- Loop through each user+vin combination that has duplicates
+    FOR inspection_record IN (
+        SELECT user_id, vin
+        FROM public.inspections
+        WHERE vin IS NOT NULL
+        GROUP BY user_id, vin
+        HAVING COUNT(*) > 1
+        ORDER BY user_id, vin
+    )
+    LOOP
+        version_counter := 1;
+        
+        -- Update each inspection for this user+vin with sequential version
+        FOR inspection_record IN (
+            SELECT id
+            FROM public.inspections
+            WHERE user_id = inspection_record.user_id
+            AND vin = inspection_record.vin
+            ORDER BY created_at ASC, id ASC  -- Oldest first
+        )
+        LOOP
+            UPDATE public.inspections
+            SET version = version_counter
+            WHERE id = inspection_record.id;
+            
+            version_counter := version_counter + 1;
+        END LOOP;
+        
+        RAISE NOTICE 'Fixed versions for user % and VIN % (assigned % versions)', 
+            inspection_record.user_id, inspection_record.vin, version_counter - 1;
+    END LOOP;
+END $$;
+
+-- ============================================================================
+-- 3. Create unique constraint for user_id + vin + version
 -- ============================================================================
 CREATE UNIQUE INDEX IF NOT EXISTS idx_inspections_user_vin_version 
 ON public.inspections(user_id, vin, version) 
 WHERE vin IS NOT NULL;
 
 -- ============================================================================
--- 3. Create trigger to auto-increment version on INSERT
+-- 4. Create trigger to auto-increment version on INSERT
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.auto_increment_inspection_version()
 RETURNS TRIGGER AS $$
@@ -51,7 +95,7 @@ CREATE TRIGGER trigger_auto_increment_inspection_version
     EXECUTE FUNCTION public.auto_increment_inspection_version();
 
 -- ============================================================================
--- 4. Create trigger to handle VIN updates
+-- 5. Create trigger to handle VIN updates
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.handle_inspection_vin_update()
 RETURNS TRIGGER AS $$
@@ -118,14 +162,14 @@ CREATE TRIGGER trigger_handle_inspection_vin_update
     EXECUTE FUNCTION public.handle_inspection_vin_update();
 
 -- ============================================================================
--- 5. Add index for querying by version
+-- 6. Add index for querying by version
 -- ============================================================================
 CREATE INDEX IF NOT EXISTS idx_inspections_user_vin_version_desc 
 ON public.inspections(user_id, vin, version DESC) 
 WHERE vin IS NOT NULL;
 
 -- ============================================================================
--- 6. Add helpful comments
+-- 7. Add helpful comments
 -- ============================================================================
 COMMENT ON COLUMN public.inspections.version IS 
 'Auto-incremented version number for each inspection. Increments automatically when user creates new inspection with same VIN, or when VIN is updated. Each VIN maintains its own version sequence.';
@@ -141,7 +185,7 @@ COMMENT ON FUNCTION public.handle_inspection_vin_update() IS
 This ensures each VIN maintains its own independent version sequence.';
 
 -- ============================================================================
--- 7. Example usage scenarios (for documentation)
+-- 8. Example usage scenarios (for documentation)
 -- ============================================================================
 
 -- SCENARIO 1: Normal INSERT flow
@@ -196,3 +240,23 @@ This ensures each VIN maintains its own independent version sequence.';
 -- WHERE user_id = 'user-123' AND vin IS NOT NULL
 -- GROUP BY vin
 -- ORDER BY MAX(created_at) DESC;
+-- ```
+
+-- **What the fix does (Section 2):**
+
+-- 1. Finds all user+vin combinations that have duplicate entries
+-- 2. Orders them by `created_at` (oldest first)
+-- 3. Assigns sequential versions: 1, 2, 3, etc.
+-- 4. The oldest inspection gets version 1, the next one gets version 2, etc.
+
+-- **Example:**
+-- ```
+-- Before:
+-- - user-123, VIN ABC123, created 2024-01-01, version=1
+-- - user-123, VIN ABC123, created 2024-02-01, version=1  ❌ duplicate
+-- - user-123, VIN ABC123, created 2024-03-01, version=1  ❌ duplicate
+
+-- After:
+-- - user-123, VIN ABC123, created 2024-01-01, version=1  ✅
+-- - user-123, VIN ABC123, created 2024-02-01, version=2  ✅
+-- - user-123, VIN ABC123, created 2024-03-01, version=3  ✅
