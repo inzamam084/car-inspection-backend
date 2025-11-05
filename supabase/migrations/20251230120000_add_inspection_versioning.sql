@@ -16,11 +16,12 @@ ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
 
 DO $$
 DECLARE
+    user_vin_record RECORD;
     inspection_record RECORD;
     version_counter INTEGER;
 BEGIN
     -- Loop through each user+vin combination that has duplicates
-    FOR inspection_record IN (
+    FOR user_vin_record IN (
         SELECT user_id, vin
         FROM public.inspections
         WHERE vin IS NOT NULL
@@ -35,8 +36,8 @@ BEGIN
         FOR inspection_record IN (
             SELECT id
             FROM public.inspections
-            WHERE user_id = inspection_record.user_id
-            AND vin = inspection_record.vin
+            WHERE user_id = user_vin_record.user_id
+            AND vin = user_vin_record.vin
             ORDER BY created_at ASC, id ASC  -- Oldest first
         )
         LOOP
@@ -48,7 +49,7 @@ BEGIN
         END LOOP;
         
         RAISE NOTICE 'Fixed versions for user % and VIN % (assigned % versions)', 
-            inspection_record.user_id, inspection_record.vin, version_counter - 1;
+            user_vin_record.user_id, user_vin_record.vin, version_counter - 1;
     END LOOP;
 END $$;
 
@@ -183,80 +184,3 @@ COMMENT ON FUNCTION public.handle_inspection_vin_update() IS
 - VIN changed (value → different value): Recalculates version for new VIN (e.g., if XYZ789 has no versions, assigns v1; if has v1, v2, assigns v3)
 - VIN removed (value → NULL): Resets to version 1
 This ensures each VIN maintains its own independent version sequence.';
-
--- ============================================================================
--- 8. Example usage scenarios (for documentation)
--- ============================================================================
-
--- SCENARIO 1: Normal INSERT flow
--- User creates first inspection for VIN ABC123
--- INSERT INTO inspections (user_id, vin, email, status) 
--- VALUES ('user-123', 'ABC123', 'user@example.com', 'pending');
--- Result: version = 1
-
--- User creates second inspection for same VIN ABC123
--- INSERT INTO inspections (user_id, vin, email, status) 
--- VALUES ('user-123', 'ABC123', 'user@example.com', 'pending');
--- Result: version = 2
-
--- SCENARIO 2: INSERT without VIN, then UPDATE to add VIN
--- Step 1: Create inspection without VIN
--- INSERT INTO inspections (user_id, email, status) 
--- VALUES ('user-123', 'user@example.com', 'pending');
--- Result: version = 1
-
--- Step 2: Add VIN during processing
--- UPDATE inspections SET vin = 'ABC123' WHERE id = 'inspection-id';
--- Result: If ABC123 has no versions → version = 1
---         If ABC123 has v1 → version = 2
---         If ABC123 has v1, v2 → version = 3
-
--- SCENARIO 3: VIN correction/update
--- Existing: vin = 'ABC123', version = 2
--- UPDATE inspections SET vin = 'XYZ789' WHERE id = 'inspection-id';
--- Result: If XYZ789 has no versions → version = 1
---         If XYZ789 has v1 → version = 2
---         If XYZ789 has v1, v2 → version = 3
-
--- SCENARIO 4: Query latest version for a VIN
--- SELECT * FROM inspections 
--- WHERE user_id = 'user-123' AND vin = 'ABC123'
--- ORDER BY version DESC 
--- LIMIT 1;
-
--- SCENARIO 5: Query all versions for a VIN
--- SELECT * FROM inspections 
--- WHERE user_id = 'user-123' AND vin = 'ABC123'
--- ORDER BY version DESC;
-
--- SCENARIO 6: Query all VINs with their version counts
--- SELECT 
---     vin, 
---     COUNT(*) as total_versions,
---     MAX(version) as latest_version,
---     MIN(created_at) as first_inspection,
---     MAX(created_at) as last_inspection
--- FROM inspections 
--- WHERE user_id = 'user-123' AND vin IS NOT NULL
--- GROUP BY vin
--- ORDER BY MAX(created_at) DESC;
--- ```
-
--- **What the fix does (Section 2):**
-
--- 1. Finds all user+vin combinations that have duplicate entries
--- 2. Orders them by `created_at` (oldest first)
--- 3. Assigns sequential versions: 1, 2, 3, etc.
--- 4. The oldest inspection gets version 1, the next one gets version 2, etc.
-
--- **Example:**
--- ```
--- Before:
--- - user-123, VIN ABC123, created 2024-01-01, version=1
--- - user-123, VIN ABC123, created 2024-02-01, version=1  ❌ duplicate
--- - user-123, VIN ABC123, created 2024-03-01, version=1  ❌ duplicate
-
--- After:
--- - user-123, VIN ABC123, created 2024-01-01, version=1  ✅
--- - user-123, VIN ABC123, created 2024-02-01, version=2  ✅
--- - user-123, VIN ABC123, created 2024-03-01, version=3  ✅
