@@ -169,33 +169,9 @@ export async function handleN8nAppraisalRequest(
  * @returns A promise resolving to a Response object.
  */
 export async function routeRequest(
-  payload: Record<string, unknown>,
+  payload: N8nAppraisalPayload,
   requestId: string
 ): Promise<Response> {
   logDebug(requestId, "Routing request to n8n handler");
-
-  if (typeof payload !== "object" || payload === null) {
-    logError(requestId, "Invalid payload format - not an object");
-    return createErrorResponse(
-      "Invalid payload format. Expected a JSON object.",
-      HTTP_STATUS.BAD_REQUEST
-    );
-  }
-
-  // Route to n8n appraisal request
-  if (
-    "appraisal_id" in payload &&
-    "image_urls" in payload &&
-    "vin" in payload
-  ) {
-    logDebug(requestId, "Routing to n8n appraisal handler");
-    return handleN8nAppraisalRequest(payload as N8nAppraisalPayload, requestId);
-  }
-
-  // Invalid format
-  logError(requestId, "Invalid payload format - missing required fields");
-  return createErrorResponse(
-    "Invalid payload format. Expected `vin`, `image_urls`, and `appraisal_id` fields.",
-    HTTP_STATUS.BAD_REQUEST
-  );
+  return await handleN8nAppraisalRequest(payload, requestId);
 }

@@ -1,19 +1,25 @@
 import { logInfo, logError } from "../utils/logger.ts";
 import { routeRequest } from "./n8n.service.ts";
 import { withSubscriptionCheck } from "../../shared/subscription-middleware.ts";
+import type { N8nAppraisalPayload } from "../types/index.ts";
 
 /**
  * Process appraisal in the background
  * Calls n8n webhook and tracks usage on success
  */
 export async function processAppraisalInBackground(
-  payload: Record<string, unknown> | any,
+  payload: N8nAppraisalPayload,
   userId: string,
   appraisalId: string,
   requestId: string
 ): Promise<void> {
   try {
-    logInfo(requestId, "Processing n8n appraisal request in background");
+    logInfo(requestId, "Background processing started, waiting 1 minute before n8n call");
+
+    // Wait 1 minute before processing
+    await new Promise((resolve) => setTimeout(resolve, 60000));
+
+    logInfo(requestId, "1 minute wait completed, processing n8n appraisal request");
 
     // Route to n8n handler
     const response = await routeRequest(payload, requestId);
