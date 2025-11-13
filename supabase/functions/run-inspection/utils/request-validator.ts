@@ -11,20 +11,28 @@ export function detectRequestSource(payload: any): RequestSource {
   // Website payload only has inspection_id
   if (
     payload.inspection_id &&
-    !payload.vin &&
-    !payload.image_urls &&
-    !payload.appraisal_id
+    !payload.gallery_images &&
+    !payload.listing_url
   ) {
     return "website";
   }
 
-  // Chrome extension has vin, image_urls, appraisal_id
-  if (payload.vin && payload.image_urls && payload.appraisal_id) {
+  // Chrome extension has gallery_images, listing_url, year, make, model
+  if (
+    payload.gallery_images &&
+    Array.isArray(payload.gallery_images) &&
+    (payload.listing_url || payload.year || payload.make)
+  ) {
     return "chrome_extension";
   }
 
-  // Default to chrome extension for backwards compatibility
-  return "chrome_extension";
+  // Fallback: Check for type field
+  if (payload.type === "extension") {
+    return "chrome_extension";
+  }
+
+  // Default to website for backwards compatibility
+  return "website";
 }
 
 /**
@@ -36,20 +44,23 @@ export function validateChromeExtensionPayload(
 ): ValidationResult {
   const errors: string[] = [];
 
-  if (!payload.vin || typeof payload.vin !== "string") {
-    errors.push("vin is required and must be a string");
-  }
-
-  if (!payload.image_urls || !Array.isArray(payload.image_urls)) {
-    errors.push("image_urls is required and must be an array");
-  } else if (payload.image_urls.length === 0) {
-    errors.push("image_urls must contain at least one image");
-  } else if (payload.image_urls.length < 3) {
+  // Check for gallery_images
+  if (!payload.gallery_images || !Array.isArray(payload.gallery_images)) {
+    errors.push("gallery_images is required and must be an array");
+  } else if (payload.gallery_images.length === 0) {
+    errors.push("gallery_images must contain at least one image");
+  } else if (payload.gallery_images.length < 3) {
     errors.push("Minimum 3 images required for appraisal");
   }
 
-  if (!payload.appraisal_id || typeof payload.appraisal_id !== "string") {
-    errors.push("appraisal_id is required and must be a string");
+  // VIN is optional for chrome extension, but log if missing
+  if (!payload.vin) {
+    logDebug(requestId, "Chrome extension payload missing VIN (will attempt to extract from images)");
+  }
+
+  // Check for vehicle data (at least some identification)
+  if (!payload.year && !payload.make && !payload.model && !payload.vin) {
+    errors.push("Vehicle identification required: at least one of (year, make, model, vin)");
   }
 
   if (errors.length > 0) {

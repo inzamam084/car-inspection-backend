@@ -22,4 +22,3 @@ export type {
   Photo,
   Obd2Code,
 } from "./inspection.types.ts";
-
