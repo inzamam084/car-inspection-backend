@@ -45,7 +45,7 @@ export async function processAppraisalInBackground(
     if (response.status === 200 && reportData) {
       logInfo(requestId, "N8n request successful, saving report and tracking usage");
 
-      // 1. Save report to database
+      // 1. Save report to database with actual n8n data
       const saveResult = await saveReportToDatabase(
         appraisalId,
         reportData,
@@ -53,16 +53,20 @@ export async function processAppraisalInBackground(
       );
 
       if (!saveResult.success) {
-        logError(requestId, "Failed to save report (continuing with usage tracking)", {
+        logError(requestId, "Failed to save report", {
           error: saveResult.error,
         });
-      } else {
-        logInfo(requestId, "Report saved successfully", {
-          report_id: saveResult.reportId,
-        });
+        
+        // Update inspection status to failed if report save fails
+        await updateInspectionStatus(appraisalId, "failed", requestId);
+        return;
       }
 
-      // 2. Update inspection status to completed
+      logInfo(requestId, "Report saved successfully", {
+        report_id: saveResult.reportId,
+      });
+
+      // 2. Update inspection status to done
       const statusResult = await updateInspectionStatus(
         appraisalId,
         "done",
@@ -75,14 +79,14 @@ export async function processAppraisalInBackground(
         });
       }
 
-      // 3. Track usage
-
-      // Track usage now that operation is confirmed successful
+      // 3. Track usage with the saved report ID
+      // withSubscriptionCheck will create report_usage entry and deduct from subscription/blocks
       const usageCheck = await withSubscriptionCheck(userId, {
         requireSubscription: false,
         checkUsageLimit: true,
-        trackUsage: true, // Track now!
+        trackUsage: true,
         inspectionId: appraisalId,
+        reportId: saveResult.reportId, // Pass the actual report ID
         allowBlockUsage: true,
         hadHistory: false,
       });
@@ -93,11 +97,12 @@ export async function processAppraisalInBackground(
         logError(requestId, "Usage tracking failed", {
           code,
           error,
+          report_id: saveResult.reportId,
         });
 
-        // Log critically but don't fail the request
+        // Log critically but don't fail the request - report is already saved
         console.error(
-          `[CRITICAL] Usage tracking failed for user ${userId}, appraisal ${appraisalId}:`,
+          `[CRITICAL] Usage tracking failed for user ${userId}, appraisal ${appraisalId}, report ${saveResult.reportId}:`,
           error
         );
       } else {
@@ -106,6 +111,7 @@ export async function processAppraisalInBackground(
         logInfo(requestId, "Usage tracked successfully", {
           usage_type: usageType,
           remaining_reports: remainingReports,
+          report_id: saveResult.reportId,
         });
       }
     } else {
