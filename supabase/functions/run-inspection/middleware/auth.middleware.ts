@@ -25,6 +25,11 @@ export async function authMiddleware(
       });
     }
 
+    logDebug(requestId, "User JWT Token", {
+      token: authHeader,
+    });
+
+
     // Extract token from "Bearer <token>" format
     const token = authHeader.replace("Bearer ", "");
 
