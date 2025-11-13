@@ -11,7 +11,7 @@ export async function authMiddleware(
   res: Response,
   next: NextFunction
 ) {
-  const requestId = (req as any).requestId;
+  const { requestId } = req;
 
   try {
     logDebug(requestId, "Authenticating user from JWT");
@@ -57,77 +57,14 @@ export async function authMiddleware(
 
     next();
   } catch (error) {
+    const { message, stack } = error as Error;
     logError(requestId, "Authentication middleware error", {
-      error: (error as Error).message,
-      stack: (error as Error).stack,
+      error: message,
+      stack,
     });
 
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
       error: "Authentication error",
     });
-  }
-}
-
-/**
- * Optional authentication middleware
- * Attempts to authenticate but doesn't fail if no token provided
- * Useful for endpoints that work for both authenticated and anonymous users
- */
-export async function optionalAuthMiddleware(
-  req: Request,
-  _res: Response,
-  next: NextFunction
-) {
-  const requestId = (req as any).requestId;
-
-  try {
-    // Get authorization header
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      logDebug(requestId, "No authorization header provided (optional auth)");
-      // Continue without authentication
-      next();
-      return;
-    }
-
-    // Extract token from "Bearer <token>" format
-    const token = authHeader.replace("Bearer ", "");
-
-    // Create Supabase auth client
-    const supabase = createAuthClient();
-
-    // Validate JWT token and get user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser(token);
-
-    if (authError || !user) {
-      logDebug(requestId, "Optional authentication failed", {
-        error: authError?.message || "Invalid token",
-      });
-      // Continue without authentication (optional)
-      next();
-      return;
-    }
-
-    logInfo(requestId, "User authenticated successfully (optional)", {
-      user_id: "[PRESENT]",
-      source: "jwt",
-    });
-
-    // Attach user info to request
-    (req as any).user = user;
-    (req as any).userId = user.id;
-
-    next();
-  } catch (error) {
-    logError(requestId, "Optional authentication middleware error", {
-      error: (error as Error).message,
-      stack: (error as Error).stack,
-    });
-
-    // Continue without authentication on error (optional)
-    next();
   }
 }

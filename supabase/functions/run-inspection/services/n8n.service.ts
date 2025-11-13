@@ -19,18 +19,20 @@ export async function handleN8nAppraisalRequest(
   payload: N8nAppraisalPayload,
   requestId: string
 ): Promise<Response> {
+  const { vin, image_count, appraisal_id, image_urls } = payload;
+
   logInfo(requestId, "Processing n8n appraisal request", {
-    vin: payload.vin,
-    image_count: payload.image_count,
-    appraisal_id: payload.appraisal_id,
+    vin,
+    image_count,
+    appraisal_id,
   });
 
   // Validate required fields
-  if (!payload.vin || !payload.image_urls || payload.image_urls.length === 0) {
+  if (!vin || !image_urls || image_urls.length === 0) {
     logError(requestId, "Missing required fields", {
-      has_vin: !!payload.vin,
-      has_image_urls: !!payload.image_urls,
-      image_count: payload.image_urls?.length || 0,
+      has_vin: !!vin,
+      has_image_urls: !!image_urls,
+      image_count: image_urls?.length || 0,
     });
     return createErrorResponse(
       "VIN and image_urls are required.",
@@ -39,9 +41,9 @@ export async function handleN8nAppraisalRequest(
   }
 
   // Validate minimum image count
-  if (payload.image_urls.length < 3) {
+  if (image_urls.length < 3) {
     logError(requestId, "Insufficient images", {
-      provided: payload.image_urls.length,
+      provided: image_urls.length,
       required: 3,
     });
     return createErrorResponse(
@@ -51,7 +53,8 @@ export async function handleN8nAppraisalRequest(
   }
 
   // Check n8n webhook URL is configured
-  if (!N8N_CONFIG.webhookUrl) {
+  const { webhookUrl } = N8N_CONFIG;
+  if (!webhookUrl) {
     logError(requestId, "N8N_WEBHOOK_URL not configured");
     return createErrorResponse(
       "N8n webhook not configured. Please set N8N_WEBHOOK_URL environment variable.",
@@ -61,10 +64,10 @@ export async function handleN8nAppraisalRequest(
 
   try {
     logDebug(requestId, "Calling n8n webhook", {
-      webhook_url: N8N_CONFIG.webhookUrl,
+      webhook_url: webhookUrl,
       payload_size: JSON.stringify(payload).length,
-      vin: payload.vin,
-      image_count: payload.image_count,
+      vin,
+      image_count,
     });
 
     // Call n8n webhook with 5-minute timeout
@@ -72,7 +75,7 @@ export async function handleN8nAppraisalRequest(
     const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes
 
     const n8nStartTime = Date.now();
-    const response = await fetch(N8N_CONFIG.webhookUrl, {
+    const response = await fetch(webhookUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -84,50 +87,55 @@ export async function handleN8nAppraisalRequest(
     clearTimeout(timeoutId);
     const n8nDuration = (Date.now() - n8nStartTime) / 1000;
 
+    const { status, statusText, ok } = response;
+
     logInfo(requestId, "N8n webhook responded", {
-      status: response.status,
-      statusText: response.statusText,
+      status,
+      statusText,
       duration_seconds: n8nDuration,
     });
 
-    if (!response.ok) {
+    if (!ok) {
       const errorText = await response.text();
       logError(requestId, "N8n webhook returned error", {
-        status: response.status,
-        statusText: response.statusText,
+        status,
+        statusText,
         error: errorText,
         duration_seconds: n8nDuration,
       });
 
       // Handle timeout status codes
-      if (
-        response.status === 524 ||
-        response.status === 408 ||
-        response.status === 504
-      ) {
+      if (status === 524 || status === 408 || status === 504) {
         return createErrorResponse(
-          `Request timeout (HTTP ${response.status}). The workflow may still be processing. Check n8n for execution status.`,
+          `Request timeout (HTTP ${status}). The workflow may still be processing. Check n8n for execution status.`,
           HTTP_STATUS.GATEWAY_TIMEOUT
         );
       }
 
       return createErrorResponse(
-        `N8n webhook error: ${response.status} ${response.statusText}`,
+        `N8n webhook error: ${status} ${statusText}`,
         HTTP_STATUS.BAD_GATEWAY
       );
     }
 
     const result: N8nAppraisalResponse = await response.json();
+    const { 
+      vin: resultVin, 
+      html_report, 
+      processing_time_seconds, 
+      vehicle, 
+      valuation 
+    } = result;
 
     logInfo(requestId, "N8n webhook completed successfully", {
-      vin: result.vin,
-      has_report: !!result.html_report,
-      processing_time: result.processing_time_seconds,
+      vin: resultVin,
+      has_report: !!html_report,
+      processing_time: processing_time_seconds,
       duration_seconds: n8nDuration,
-      vehicle: result.vehicle
-        ? `${result.vehicle.year} ${result.vehicle.make} ${result.vehicle.model}`
+      vehicle: vehicle
+        ? `${vehicle.year} ${vehicle.make} ${vehicle.model}`
         : null,
-      market_value: result.valuation?.market_value || null,
+      market_value: valuation?.market_value || null,
     });
 
     return createJsonResponse(result, HTTP_STATUS.OK);
@@ -141,13 +149,14 @@ export async function handleN8nAppraisalRequest(
       );
     }
 
+    const { message, stack } = error as Error;
     logError(requestId, "N8n webhook call failed", {
-      error: (error as Error).message,
-      stack: (error as Error).stack,
+      error: message,
+      stack,
     });
 
     return createErrorResponse(
-      `Failed to call n8n webhook: ${(error as Error).message}`,
+      `Failed to call n8n webhook: ${message}`,
       HTTP_STATUS.INTERNAL_SERVER_ERROR
     );
   }
@@ -190,4 +199,3 @@ export async function routeRequest(
     HTTP_STATUS.BAD_REQUEST
   );
 }
-
