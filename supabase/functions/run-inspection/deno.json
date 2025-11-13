@@ -1,5 +1,9 @@
 {
   "compilerOptions": {
     "lib": ["deno.window", "dom", "esnext"]
+  },
+  "nodeModulesDir": "auto",
+  "imports": {
+    "express": "npm:express@4.18.2"
   }
 }
