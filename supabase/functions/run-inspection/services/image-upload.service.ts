@@ -1,5 +1,6 @@
-import { supabase } from "../config/supabase.config.ts";
+import { supabase, SUPABASE_CONFIG } from "../config/supabase.config.ts";
 import { logInfo, logError, logDebug } from "../utils/logger.ts";
+import { TIMEOUTS, LIMITS, STORAGE } from "../config/constants.ts";
 
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -24,7 +25,7 @@ function getRefererForUrl(imageUrl: string): string {
  */
 async function downloadImage(
   imageUrl: string,
-  timeoutMs: number = 30000
+  timeoutMs: number = TIMEOUTS.IMAGE_DOWNLOAD
 ): Promise<{ success: boolean; buffer?: Uint8Array; error?: string }> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -77,17 +78,16 @@ async function downloadImage(
 async function uploadToSupabase(
   buffer: Uint8Array,
   filename: string,
-  inspectionId: string,
-  bucketName: string = "inspection-images"
+  inspectionId: string
 ): Promise<{ success: boolean; url?: string; error?: string }> {
   try {
     const uploadPath = `${inspectionId}/${filename}`;
 
     const { error } = await supabase.storage
-      .from(bucketName)
+      .from(SUPABASE_CONFIG.bucketName)
       .upload(uploadPath, buffer, {
-        contentType: "image/jpeg",
-        cacheControl: "3600",
+        contentType: STORAGE.IMAGE_CONTENT_TYPE,
+        cacheControl: STORAGE.IMAGE_CACHE_CONTROL,
         upsert: false,
       });
 
@@ -96,7 +96,7 @@ async function uploadToSupabase(
     }
 
     const { data: urlData } = supabase.storage
-      .from(bucketName)
+      .from(SUPABASE_CONFIG.bucketName)
       .getPublicUrl(uploadPath);
 
     return { success: true, url: urlData.publicUrl };
@@ -152,7 +152,7 @@ async function processImageWithRetry(
   inspectionId: string,
   index: number,
   requestId: string,
-  maxRetries: number = 3
+  maxRetries: number = LIMITS.MAX_IMAGE_RETRIES
 ): Promise<{ success: boolean; url?: string; error?: string }> {
   const filename = `gallery_${index}_${Date.now()}.jpg`;
 

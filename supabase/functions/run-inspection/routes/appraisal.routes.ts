@@ -21,7 +21,7 @@ router.post(
   authMiddleware,
   subscriptionMiddleware,
   async (req: Request, res: Response) => {
-    const { requestId, userId } = req;
+    const { requestId, userId } = req as { requestId: string; userId: string };
 
     try {
       const source = detectRequestSource(req.body);

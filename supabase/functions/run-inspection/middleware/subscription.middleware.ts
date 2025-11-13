@@ -15,7 +15,7 @@ export async function subscriptionMiddleware(
   res: Response,
   next: NextFunction
 ) {
-  const { requestId, userId } = req;
+  const { requestId, userId } = req as { requestId: string; userId?: string };
 
   if (!userId) {
     logError(requestId, "User ID not found in request");

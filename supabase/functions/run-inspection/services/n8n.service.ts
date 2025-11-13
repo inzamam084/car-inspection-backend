@@ -7,6 +7,7 @@ import {
   logDebug,
 } from "../utils/logger.ts";
 import { N8N_CONFIG } from "../config/n8n.config.ts";
+import { TIMEOUTS, LIMITS } from "../config/constants.ts";
 import type { N8nAppraisalPayload, N8nAppraisalResponse } from "../types/n8n.types.ts";
 
 /**
@@ -41,13 +42,13 @@ export async function handleN8nAppraisalRequest(
   }
 
   // Validate minimum image count
-  if (image_urls.length < 3) {
+  if (image_urls.length < LIMITS.MIN_IMAGES_REQUIRED) {
     logError(requestId, "Insufficient images", {
       provided: image_urls.length,
-      required: 3,
+      required: LIMITS.MIN_IMAGES_REQUIRED,
     });
     return createErrorResponse(
-      "Minimum 3 images required for appraisal.",
+      `Minimum ${LIMITS.MIN_IMAGES_REQUIRED} images required for appraisal.`,
       HTTP_STATUS.BAD_REQUEST
     );
   }
@@ -70,9 +71,9 @@ export async function handleN8nAppraisalRequest(
       image_count,
     });
 
-    // Call n8n webhook with 5-minute timeout
+    // Call n8n webhook with configured timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUTS.N8N_WEBHOOK);
 
     const n8nStartTime = Date.now();
     const response = await fetch(webhookUrl, {
@@ -144,7 +145,7 @@ export async function handleN8nAppraisalRequest(
     if (error instanceof Error && error.name === "AbortError") {
       logError(requestId, "N8n webhook timeout", { error: error.message });
       return createErrorResponse(
-        "Request timeout after 5 minutes. The workflow may still be processing. Check n8n for execution status.",
+        `Request timeout after ${TIMEOUTS.N8N_WEBHOOK / 1000} seconds. The workflow may still be processing. Check n8n for execution status.`,
         HTTP_STATUS.GATEWAY_TIMEOUT
       );
     }
@@ -162,16 +163,3 @@ export async function handleN8nAppraisalRequest(
   }
 }
 
-/**
- * Routes the request to the n8n handler.
- * @param payload The parsed request payload.
- * @param requestId The request ID for logging.
- * @returns A promise resolving to a Response object.
- */
-export async function routeRequest(
-  payload: N8nAppraisalPayload,
-  requestId: string
-): Promise<Response> {
-  logDebug(requestId, "Routing request to n8n handler");
-  return await handleN8nAppraisalRequest(payload, requestId);
-}

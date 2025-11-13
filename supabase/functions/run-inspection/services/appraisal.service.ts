@@ -1,5 +1,5 @@
 import { logInfo, logError } from "../utils/logger.ts";
-import { routeRequest } from "./n8n.service.ts";
+import { handleN8nAppraisalRequest } from "./n8n.service.ts";
 import { withSubscriptionCheck } from "../../shared/subscription-middleware.ts";
 import type { N8nAppraisalPayload } from "../types/index.ts";
 
@@ -14,15 +14,8 @@ export async function processAppraisalInBackground(
   requestId: string
 ): Promise<void> {
   try {
-    logInfo(requestId, "Background processing started, waiting 1 minute before n8n call");
-
-    // Wait 1 minute before processing
-    await new Promise((resolve) => setTimeout(resolve, 60000));
-
-    logInfo(requestId, "1 minute wait completed, processing n8n appraisal request");
-
-    // Route to n8n handler
-    const response = await routeRequest(payload, requestId);
+    // Call n8n handler directly
+    const response = await handleN8nAppraisalRequest(payload, requestId);
 
     logInfo(requestId, "Request processed", {
       status: response.status,

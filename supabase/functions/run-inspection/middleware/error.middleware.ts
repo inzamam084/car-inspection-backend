@@ -6,8 +6,12 @@ import { HTTP_STATUS, logError } from "../utils/logger.ts";
  * Must be registered before global error handler
  */
 export function notFoundHandler(req: Request, res: Response) {
-  const { requestId, path, method } = req;
-  
+  const { requestId, path, method } = req as {
+    requestId: string;
+    path: string;
+    method: string;
+  };
+
   logError(requestId, "Route not found", {
     path,
     method,
@@ -16,9 +20,7 @@ export function notFoundHandler(req: Request, res: Response) {
   res.status(404).json({
     error: "Route not found",
     path,
-    availableEndpoints: [
-      "POST /run-inspection",
-    ],
+    availableEndpoints: ["POST /run-inspection"],
   });
 }
 
@@ -32,9 +34,9 @@ export function globalErrorHandler(
   res: Response,
   _next: NextFunction
 ) {
-  const { requestId = "unknown" } = req as any;
+  const { requestId = "unknown" } = req as { requestId?: string };
   const { message, stack } = err;
-  
+
   logError(requestId, "Express error handler triggered", {
     error: message,
     stack,

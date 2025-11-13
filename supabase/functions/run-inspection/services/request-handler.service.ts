@@ -1,4 +1,5 @@
 import { HTTP_STATUS, logInfo } from "../utils/logger.ts";
+import { LIMITS } from "../config/constants.ts";
 import {
   validateWebsitePayload,
   validateChromeExtensionPayload,
@@ -13,6 +14,7 @@ import type {
   WebsitePayload,
   ChromeExtensionPayload,
   N8nAppraisalPayload,
+  InspectionData,
 } from "../types/index.ts";
 
 interface RequestHandlerResult {
@@ -150,7 +152,9 @@ export async function handleChromeExtensionRequest(
 /**
  * Validate that inspection has required data for appraisal
  */
-function validateInspectionData(data: any): { valid: boolean; error?: string } {
+function validateInspectionData(
+  data: InspectionData
+): { valid: boolean; error?: string } {
   if (!data.vin) {
     return { valid: false, error: "Inspection does not have VIN" };
   }
@@ -159,10 +163,10 @@ function validateInspectionData(data: any): { valid: boolean; error?: string } {
     return { valid: false, error: "Inspection has no photos" };
   }
 
-  if (data.photos.length < 3) {
+  if (data.photos.length < LIMITS.MIN_IMAGES_REQUIRED) {
     return {
       valid: false,
-      error: `Inspection must have at least 3 photos (has ${data.photos.length})`,
+      error: `Inspection must have at least ${LIMITS.MIN_IMAGES_REQUIRED} photos (has ${data.photos.length})`,
     };
   }
 

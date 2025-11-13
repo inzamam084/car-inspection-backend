@@ -1,4 +1,5 @@
 import { logDebug, logError } from "./logger.ts";
+import { LIMITS } from "../config/constants.ts";
 import type {
   RequestSource,
   ValidationResult,
@@ -49,8 +50,8 @@ export function validateChromeExtensionPayload(
     errors.push("gallery_images is required and must be an array");
   } else if (payload.gallery_images.length === 0) {
     errors.push("gallery_images must contain at least one image");
-  } else if (payload.gallery_images.length < 3) {
-    errors.push("Minimum 3 images required for appraisal");
+  } else if (payload.gallery_images.length < LIMITS.MIN_IMAGES_REQUIRED) {
+    errors.push(`Minimum ${LIMITS.MIN_IMAGES_REQUIRED} images required for appraisal`);
   }
 
   // VIN is optional for chrome extension, but log if missing

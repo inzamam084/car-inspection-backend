@@ -1,5 +1,6 @@
 import { createDatabaseService } from "../../shared/database-service.ts";
 import { logInfo, logError, logDebug } from "../utils/logger.ts";
+import { SUPABASE_CONFIG } from "../config/supabase.config.ts";
 import type { InspectionData } from "../types/index.ts";
 
 /**
@@ -55,19 +56,13 @@ export async function fetchInspectionData(
  * Returns array of public URLs from Supabase storage
  */
 export function buildImageUrls(
-  photos: InspectionData["photos"],
-  bucketName: string = "inspection-images"
+  photos: InspectionData["photos"]
 ): string[] {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  if (!supabaseUrl) {
-    throw new Error("SUPABASE_URL environment variable not set");
-  }
-
   return photos
     .filter((photo) => photo.path)
     .map((photo) => {
       // Build public URL for Supabase storage
-      return `${supabaseUrl}/storage/v1/object/public/${bucketName}/${photo.path}`;
+      return `${photo.path}`;
     });
 }
 
