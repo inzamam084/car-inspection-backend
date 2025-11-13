@@ -1,7 +1,11 @@
 import { logInfo, logError } from "../utils/logger.ts";
 import { handleN8nAppraisalRequest } from "./n8n.service.ts";
 import { withSubscriptionCheck } from "../../shared/subscription-middleware.ts";
-import type { N8nAppraisalPayload } from "../types/index.ts";
+import {
+  saveReportToDatabase,
+  updateInspectionStatus,
+} from "./report.service.ts";
+import type { N8nAppraisalPayload, N8nAppraisalResponse } from "../types/index.ts";
 
 /**
  * Process appraisal in the background
@@ -23,19 +27,55 @@ export async function processAppraisalInBackground(
 
     // Parse response
     const responseText = await response.text();
+    let reportData: N8nAppraisalResponse | null = null;
 
     try {
-      JSON.parse(responseText); // Validate JSON format
+      reportData = JSON.parse(responseText) as N8nAppraisalResponse;
     } catch (e) {
       logError(requestId, "Failed to parse response", {
         error: (e as Error).message,
       });
+      
+      // Update inspection status to failed
+      await updateInspectionStatus(appraisalId, "failed", requestId);
       return;
     }
 
     // Track usage ONLY if n8n request was successful (200)
-    if (response.status === 200) {
-      logInfo(requestId, "N8n request successful, tracking usage");
+    if (response.status === 200 && reportData) {
+      logInfo(requestId, "N8n request successful, saving report and tracking usage");
+
+      // 1. Save report to database
+      const saveResult = await saveReportToDatabase(
+        appraisalId,
+        reportData,
+        requestId
+      );
+
+      if (!saveResult.success) {
+        logError(requestId, "Failed to save report (continuing with usage tracking)", {
+          error: saveResult.error,
+        });
+      } else {
+        logInfo(requestId, "Report saved successfully", {
+          report_id: saveResult.reportId,
+        });
+      }
+
+      // 2. Update inspection status to completed
+      const statusResult = await updateInspectionStatus(
+        appraisalId,
+        "done",
+        requestId
+      );
+
+      if (!statusResult.success) {
+        logError(requestId, "Failed to update inspection status", {
+          error: statusResult.error,
+        });
+      }
+
+      // 3. Track usage
 
       // Track usage now that operation is confirmed successful
       const usageCheck = await withSubscriptionCheck(userId, {
@@ -69,9 +109,12 @@ export async function processAppraisalInBackground(
         });
       }
     } else {
-      logInfo(requestId, "N8n request failed, skipping usage tracking", {
+      logInfo(requestId, "N8n request failed, updating inspection status", {
         status: response.status,
       });
+
+      // Update inspection status to failed
+      await updateInspectionStatus(appraisalId, "failed", requestId);
     }
 
     logInfo(requestId, "Background processing completed");
