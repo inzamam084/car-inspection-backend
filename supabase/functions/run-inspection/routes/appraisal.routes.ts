@@ -41,6 +41,8 @@ router.post(
         });
       }
 
+      console.log("Result ", result);
+
       // Start background processing
       runInBackground(async () => {
         await processAppraisalInBackground(
