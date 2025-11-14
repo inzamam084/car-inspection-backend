@@ -156,29 +156,29 @@ function buildN8nPayload(
   // Extract notes from description and other fields
   const notes: string[] = [];
 
-  if (chromePayload.description) {
-    notes.push(`Description: ${chromePayload.description}`);
-  }
+  // if (chromePayload.description) {
+  //   notes.push(`Description: ${chromePayload.description}`);
+  // }
 
-  if (chromePayload.seller_name) {
-    notes.push(`Seller: ${chromePayload.seller_name}`);
-  }
+  // if (chromePayload.seller_name) {
+  //   notes.push(`Seller: ${chromePayload.seller_name}`);
+  // }
 
-  if (chromePayload.seller_phone) {
-    notes.push(`Contact: ${chromePayload.seller_phone}`);
-  }
+  // if (chromePayload.seller_phone) {
+  //   notes.push(`Contact: ${chromePayload.seller_phone}`);
+  // }
 
-  if (chromePayload.listing_url) {
-    notes.push(`Listing URL: ${chromePayload.listing_url}`);
-  }
+  // if (chromePayload.listing_url) {
+  //   notes.push(`Listing URL: ${chromePayload.listing_url}`);
+  // }
 
-  if (chromePayload.price) {
-    notes.push(`Listed Price: ${chromePayload.price}`);
-  }
+  // if (chromePayload.price) {
+  //   notes.push(`Listed Price: ${chromePayload.price}`);
+  // }
 
-  if (chromePayload.platform) {
-    notes.push(`Platform: ${chromePayload.platform}`);
-  }
+  // if (chromePayload.platform) {
+  //   notes.push(`Platform: ${chromePayload.platform}`);
+  // }
 
   // Build the n8n payload
   const n8nPayload: N8nAppraisalPayload = {
