@@ -26,6 +26,7 @@ router.post(
     try {
       const source = detectRequestSource(req.body);
       logInfo(requestId, "Request source detected", { source });
+      console.log("BODY ", req.body);
 
       // Process based on source
       const result =
