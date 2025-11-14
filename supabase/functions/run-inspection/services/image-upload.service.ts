@@ -84,7 +84,7 @@ async function uploadToSupabase(
     const uploadPath = `${inspectionId}/${filename}`;
 
     const { error } = await supabase.storage
-      .from(SUPABASE_CONFIG.bucketName)
+      .from("inspection-photos")
       .upload(uploadPath, buffer, {
         contentType: STORAGE.IMAGE_CONTENT_TYPE,
         cacheControl: STORAGE.IMAGE_CACHE_CONTROL,
@@ -96,7 +96,7 @@ async function uploadToSupabase(
     }
 
     const { data: urlData } = supabase.storage
-      .from(SUPABASE_CONFIG.bucketName)
+      .from("inspection-photos")
       .getPublicUrl(uploadPath);
 
     return { success: true, url: urlData.publicUrl };
