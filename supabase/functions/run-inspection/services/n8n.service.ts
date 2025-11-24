@@ -14,7 +14,7 @@ import type { N8nAppraisalPayload, N8nAppraisalResponse } from "../types/n8n.typ
  * Fire N8N webhook without waiting for response (fire-and-forget)
  * @param payload The n8n appraisal payload
  * @param requestId The request ID for logging
- * @returns Success status (doesn't wait for N8N to complete)
+ * @returns Success status (only confirms request was sent)
  */
 export async function fireN8nWebhookAsync(
   payload: N8nAppraisalPayload,
@@ -31,18 +31,18 @@ export async function fireN8nWebhookAsync(
   }
 
   try {
-    // Fire webhook with short timeout (just to confirm it was received)
+    // Fire webhook with short timeout (only to detect network failures)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
-    logDebug(requestId, "Firing N8N webhook (async)", {
+    logDebug(requestId, "Firing N8N webhook (fire-and-forget)", {
       webhook_url: webhookUrl,
       appraisal_id: payload.appraisal_id,
       vin: payload.vin,
       image_count: payload.image_count
     });
 
-    const response = await fetch(webhookUrl, {
+    await fetch(webhookUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -53,25 +53,12 @@ export async function fireN8nWebhookAsync(
 
     clearTimeout(timeoutId);
 
-    // We only care if webhook was accepted (202, 200, etc.)
-    if (response.ok) {
-      logInfo(requestId, "N8N webhook fired successfully", {
-        status: response.status,
-        appraisal_id: payload.appraisal_id
-      });
-      return { success: true };
-    }
-
-    const errorText = await response.text();
-    logError(requestId, "N8N webhook returned error", {
-      status: response.status,
-      error: errorText
+    // Request sent successfully - we don't care about the response
+    logInfo(requestId, "N8N webhook fired successfully", {
+      appraisal_id: payload.appraisal_id
     });
 
-    return {
-      success: false,
-      error: `Webhook returned ${response.status}: ${errorText}`
-    };
+    return { success: true };
 
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
@@ -331,12 +318,12 @@ export async function handleN8nAppraisalRequest(
     }
 
     const result: N8nAppraisalResponse = await response.json();
-    const { 
-      vin: resultVin, 
-      html_report, 
-      processing_time_seconds, 
-      vehicle, 
-      valuation 
+    const {
+      vin: resultVin,
+      html_report,
+      processing_time_seconds,
+      vehicle,
+      valuation
     } = result;
 
     logInfo(requestId, "N8n webhook completed successfully", {
