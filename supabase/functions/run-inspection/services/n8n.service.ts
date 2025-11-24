@@ -11,15 +11,15 @@ import { TIMEOUTS, LIMITS } from "../config/constants.ts";
 import type { N8nAppraisalPayload, N8nAppraisalResponse } from "../types/n8n.types.ts";
 
 /**
- * Fire N8N webhook without waiting for response (fire-and-forget)
+ * Fire N8N webhook without waiting for response (true fire-and-forget)
  * @param payload The n8n appraisal payload
  * @param requestId The request ID for logging
- * @returns Success status (only confirms request was sent)
+ * @returns Success status (always succeeds unless config error)
  */
-export async function fireN8nWebhookAsync(
+export function fireN8nWebhookAsync(
   payload: N8nAppraisalPayload,
   requestId: string
-): Promise<{ success: boolean; error?: string }> {
+): { success: boolean; error?: string } {
   const { webhookUrl } = N8N_CONFIG;
 
   if (!webhookUrl) {
@@ -30,53 +30,35 @@ export async function fireN8nWebhookAsync(
     };
   }
 
-  try {
-    // Fire webhook with short timeout (only to detect network failures)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+  logDebug(requestId, "Firing N8N webhook (fire-and-forget)", {
+    webhook_url: webhookUrl,
+    appraisal_id: payload.appraisal_id,
+    vin: payload.vin,
+    image_count: payload.image_count
+  });
 
-    logDebug(requestId, "Firing N8N webhook (fire-and-forget)", {
-      webhook_url: webhookUrl,
-      appraisal_id: payload.appraisal_id,
-      vin: payload.vin,
-      image_count: payload.image_count
-    });
-
-    await fetch(webhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    // Request sent successfully - we don't care about the response
-    logInfo(requestId, "N8N webhook fired successfully", {
+  // Fire and forget - don't wait for response
+  // Use Promise.resolve to ensure we don't block
+  fetch(webhookUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  }).catch((error) => {
+    // Log errors but don't fail - webhook might still have been received
+    logError(requestId, "N8N webhook call failed (fire-and-forget)", {
+      error: error instanceof Error ? error.message : String(error),
       appraisal_id: payload.appraisal_id
     });
+  });
 
-    return { success: true };
+  // Return immediately - we don't wait for the fetch to complete
+  logInfo(requestId, "N8N webhook fired (not waiting for response)", {
+    appraisal_id: payload.appraisal_id
+  });
 
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      logError(requestId, "N8N webhook timeout (5 seconds)");
-      return {
-        success: false,
-        error: "Webhook request timeout after 5 seconds"
-      };
-    }
-
-    const { message } = error as Error;
-    logError(requestId, "N8N webhook call failed", { error: message });
-
-    return {
-      success: false,
-      error: `Failed to call webhook: ${message}`
-    };
-  }
+  return { success: true };
 }
 
 /**

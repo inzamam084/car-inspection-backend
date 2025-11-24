@@ -18,7 +18,7 @@ export async function processAppraisalInBackground(
 ): Promise<void> {
   try {
     // Fire N8N webhook without waiting for response
-    const fireResult = await fireN8nWebhookAsync(payload, requestId);
+    const fireResult = fireN8nWebhookAsync(payload, requestId);
 
     if (!fireResult.success) {
       logError(requestId, "Failed to fire N8N webhook", {
