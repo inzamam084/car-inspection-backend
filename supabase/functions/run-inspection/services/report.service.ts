@@ -1,5 +1,6 @@
 import { supabase } from "../config/supabase.config.ts";
 import { logInfo, logError, logDebug } from "../utils/logger.ts";
+import { withSubscriptionCheck } from "../../shared/subscription-middleware.ts";
 import type { N8nAppraisalResponse } from "../types/index.ts";
 
 /**
@@ -99,19 +100,19 @@ function buildSummaryText(reportData: N8nAppraisalResponse): string {
   // Valuation summary
   if (reportData.valuation) {
     const { market_value, wholesale_value, recon_total, data_confidence } = reportData.valuation;
-    
+
     if (market_value > 0) {
       parts.push(`Market: $${market_value.toLocaleString()}`);
     }
-    
+
     if (wholesale_value > 0) {
       parts.push(`Wholesale: $${wholesale_value.toLocaleString()}`);
     }
-    
+
     if (recon_total > 0) {
       parts.push(`Recon: $${recon_total.toLocaleString()}`);
     }
-    
+
     if (data_confidence && data_confidence !== "none") {
       parts.push(`Confidence: ${data_confidence}`);
     }
@@ -186,6 +187,102 @@ export async function updateInspectionStatus(
     logError(requestId, "Exception while updating inspection status", {
       error: message,
       inspection_id: inspectionId,
+    });
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Save report and track usage (called by cron job when N8N completes)
+ */
+export async function saveReportAndTrackUsage(
+  inspectionId: string,
+  userId: string,
+  reportData: N8nAppraisalResponse,
+  requestId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // 1. Save report to database
+    const saveResult = await saveReportToDatabase(
+      inspectionId,
+      reportData,
+      requestId
+    );
+
+    if (!saveResult.success) {
+      logError(requestId, "Failed to save report", {
+        error: saveResult.error,
+        inspection_id: inspectionId
+      });
+
+      // Update inspection status to failed
+      await updateInspectionStatus(inspectionId, "failed", requestId);
+      return { success: false, error: saveResult.error };
+    }
+
+    logInfo(requestId, "Report saved successfully", {
+      report_id: saveResult.reportId,
+      inspection_id: inspectionId
+    });
+
+    // 2. Update inspection status to done
+    const statusResult = await updateInspectionStatus(
+      inspectionId,
+      "done",
+      requestId
+    );
+
+    if (!statusResult.success) {
+      logError(requestId, "Failed to update inspection status", {
+        error: statusResult.error,
+        inspection_id: inspectionId
+      });
+    }
+
+    // 3. Track usage
+    const usageCheck = await withSubscriptionCheck(userId, {
+      requireSubscription: false,
+      checkUsageLimit: true,
+      trackUsage: true,
+      inspectionId: inspectionId,
+      reportId: saveResult.reportId,
+      allowBlockUsage: true,
+      hadHistory: false,
+    });
+
+    if (!usageCheck.success) {
+      const { code, error } = usageCheck;
+
+      logError(requestId, "Usage tracking failed", {
+        code,
+        error,
+        report_id: saveResult.reportId,
+        inspection_id: inspectionId
+      });
+
+      // Log critically but don't fail - report is already saved
+      console.error(
+        `[CRITICAL] Usage tracking failed for user ${userId}, inspection ${inspectionId}, report ${saveResult.reportId}:`,
+        error
+      );
+    } else {
+      const { usageType, remainingReports } = usageCheck;
+
+      logInfo(requestId, "Usage tracked successfully", {
+        usage_type: usageType,
+        remaining_reports: remainingReports,
+        report_id: saveResult.reportId,
+        inspection_id: inspectionId
+      });
+    }
+
+    return { success: true };
+
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logError(requestId, "Exception in saveReportAndTrackUsage", {
+      error: message,
+      inspection_id: inspectionId
     });
     return { success: false, error: message };
   }

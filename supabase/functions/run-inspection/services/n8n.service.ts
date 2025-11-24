@@ -11,6 +11,217 @@ import { TIMEOUTS, LIMITS } from "../config/constants.ts";
 import type { N8nAppraisalPayload, N8nAppraisalResponse } from "../types/n8n.types.ts";
 
 /**
+ * Fire N8N webhook without waiting for response (fire-and-forget)
+ * @param payload The n8n appraisal payload
+ * @param requestId The request ID for logging
+ * @returns Success status (doesn't wait for N8N to complete)
+ */
+export async function fireN8nWebhookAsync(
+  payload: N8nAppraisalPayload,
+  requestId: string
+): Promise<{ success: boolean; error?: string }> {
+  const { webhookUrl } = N8N_CONFIG;
+
+  if (!webhookUrl) {
+    logError(requestId, "N8N_WEBHOOK_URL not configured");
+    return {
+      success: false,
+      error: "N8n webhook not configured"
+    };
+  }
+
+  try {
+    // Fire webhook with short timeout (just to confirm it was received)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+    logDebug(requestId, "Firing N8N webhook (async)", {
+      webhook_url: webhookUrl,
+      appraisal_id: payload.appraisal_id,
+      vin: payload.vin,
+      image_count: payload.image_count
+    });
+
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    // We only care if webhook was accepted (202, 200, etc.)
+    if (response.ok) {
+      logInfo(requestId, "N8N webhook fired successfully", {
+        status: response.status,
+        appraisal_id: payload.appraisal_id
+      });
+      return { success: true };
+    }
+
+    const errorText = await response.text();
+    logError(requestId, "N8N webhook returned error", {
+      status: response.status,
+      error: errorText
+    });
+
+    return {
+      success: false,
+      error: `Webhook returned ${response.status}: ${errorText}`
+    };
+
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      logError(requestId, "N8N webhook timeout (5 seconds)");
+      return {
+        success: false,
+        error: "Webhook request timeout after 5 seconds"
+      };
+    }
+
+    const { message } = error as Error;
+    logError(requestId, "N8N webhook call failed", { error: message });
+
+    return {
+      success: false,
+      error: `Failed to call webhook: ${message}`
+    };
+  }
+}
+
+/**
+ * Fetch recent N8N executions and find completed ones
+ * @param requestId The request ID for logging
+ * @returns Array of completed executions with appraisal IDs
+ */
+export async function fetchRecentN8nExecutions(
+  requestId: string
+): Promise<{
+  success: boolean;
+  executions?: Array<{
+    executionId: string;
+    appraisalId: string;
+    status: string;
+    result: N8nAppraisalResponse;
+  }>;
+  error?: string;
+}> {
+  const { apiKey, workflowId, webhookUrl } = N8N_CONFIG;
+
+  if (!apiKey || !workflowId) {
+    return {
+      success: false,
+      error: "N8N API key or workflow ID not configured"
+    };
+  }
+
+  try {
+    // Extract base URL from webhook URL
+    const url = new URL(webhookUrl);
+    const baseUrl = `${url.protocol}//${url.host}`;
+
+    // Fetch recent successful executions (last 50)
+    const apiUrl = `${baseUrl}/api/v1/executions?workflowId=${workflowId}&limit=50&includeData=true&status=success`;
+
+    logDebug(requestId, "Fetching recent N8N executions", { api_url: apiUrl });
+
+    const response = await fetch(apiUrl, {
+      headers: {
+        'X-N8N-API-KEY': apiKey,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logError(requestId, "N8N API returned error", {
+        status: response.status,
+        error: errorText
+      });
+      return {
+        success: false,
+        error: `N8N API error: ${response.status}`
+      };
+    }
+
+    const data = await response.json();
+
+    if (!data.data || data.data.length === 0) {
+      logDebug(requestId, "No recent N8N executions found");
+      return { success: true, executions: [] };
+    }
+
+    // Parse executions and extract results
+    const executions = data.data
+      .filter((exec: Record<string, unknown>) => exec.finished === true && exec.status === 'success')
+      .map((exec: Record<string, unknown>) => {
+        try {
+          // Extract result from last node's output
+          const execData = exec.data as Record<string, unknown> | undefined;
+          const resultData = execData?.resultData as Record<string, unknown> | undefined;
+          const runData = resultData?.runData as Record<string, unknown> | undefined;
+
+          if (!runData) return null;
+
+          const lastNodeName = Object.keys(runData).pop();
+          if (!lastNodeName) return null;
+
+          const nodeData = runData[lastNodeName] as unknown[];
+          const outputData = (nodeData?.[0] as Record<string, unknown>)?.data as Record<string, unknown> | undefined;
+          const mainData = outputData?.main as unknown[][];
+          const jsonData = mainData?.[0]?.[0] as Record<string, unknown> | undefined;
+          const json = jsonData?.json as Record<string, unknown> | undefined;
+
+          if (!json) return null;
+
+          // Extract appraisal_id (could be appraisal_id or appraisalId)
+          const appraisalId = json.appraisal_id || json.appraisalId;
+
+          if (!appraisalId || typeof appraisalId !== 'string') {
+            logDebug(requestId, "Execution missing appraisal_id", {
+              execution_id: exec.id
+            });
+            return null;
+          }
+
+          return {
+            executionId: exec.id as string,
+            appraisalId: appraisalId,
+            status: 'completed',
+            result: json as unknown as N8nAppraisalResponse
+          };
+        } catch (err) {
+          logError(requestId, "Error parsing execution", {
+            execution_id: exec.id,
+            error: err instanceof Error ? err.message : String(err)
+          });
+          return null;
+        }
+      })
+      .filter((exec: { executionId: string; appraisalId: string; status: string; result: N8nAppraisalResponse } | null): exec is { executionId: string; appraisalId: string; status: string; result: N8nAppraisalResponse } => exec !== null);
+
+    logInfo(requestId, "Fetched N8N executions", {
+      total_fetched: data.data.length,
+      with_appraisal_id: executions.length
+    });
+
+    return { success: true, executions };
+
+  } catch (error) {
+    const { message } = error as Error;
+    logError(requestId, "Failed to fetch N8N executions", { error: message });
+
+    return {
+      success: false,
+      error: message
+    };
+  }
+}
+
+/**
  * Handles n8n appraisal requests (from Chrome Extension).
  * @param payload The n8n appraisal payload.
  * @param requestId The request ID for logging.

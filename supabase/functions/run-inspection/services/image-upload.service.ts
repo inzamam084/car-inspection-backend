@@ -1,6 +1,7 @@
 import { supabase, SUPABASE_CONFIG } from "../config/supabase.config.ts";
 import { logInfo, logError, logDebug } from "../utils/logger.ts";
 import { TIMEOUTS, LIMITS, STORAGE } from "../config/constants.ts";
+import { transformImageUrl, extractDomain } from "../utils/url-transformer.ts";
 
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -156,6 +157,17 @@ async function processImageWithRetry(
 ): Promise<{ success: boolean; url?: string; error?: string }> {
   const filename = `gallery_${index}_${Date.now()}.jpg`;
 
+  // Transform URL for higher quality if domain-specific transformation exists
+  const transformedUrl = transformImageUrl(imageUrl);
+  const domain = extractDomain(imageUrl);
+
+  if (transformedUrl !== imageUrl) {
+    logDebug(requestId, `Transformed image URL for domain ${domain}`, {
+      original: imageUrl,
+      transformed: transformedUrl,
+    });
+  }
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       if (attempt > 0) {
@@ -164,8 +176,8 @@ async function processImageWithRetry(
         await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000));
       }
 
-      // 1. Download image
-      const downloadResult = await downloadImage(imageUrl);
+      // 1. Download image (using transformed URL for higher quality)
+      const downloadResult = await downloadImage(transformedUrl);
       if (!downloadResult.success || !downloadResult.buffer) {
         throw new Error(downloadResult.error || "Download failed");
       }

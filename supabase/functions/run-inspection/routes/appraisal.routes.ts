@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "npm:express@4.18.2";
-import { HTTP_STATUS, logInfo, logError } from "../utils/logger.ts";
+import { HTTP_STATUS, logError } from "../utils/logger.ts";
 import { authMiddleware } from "../middleware/auth.middleware.ts";
+import { sourceDetectionMiddleware } from "../middleware/source-detection.middleware.ts";
 import { subscriptionMiddleware } from "../middleware/subscription.middleware.ts";
 import { runInBackground } from "../utils/background.ts";
 import { processAppraisalInBackground } from "../services/appraisal.service.ts";
@@ -8,7 +9,6 @@ import {
   handleWebsiteRequest,
   handleChromeExtensionRequest,
 } from "../services/request-handler.service.ts";
-import { detectRequestSource } from "../utils/request-validator.ts";
 
 const router = Router();
 
@@ -19,16 +19,13 @@ const router = Router();
 router.post(
   "/",
   authMiddleware,
+  sourceDetectionMiddleware,
   subscriptionMiddleware,
   async (req: Request, res: Response) => {
-    const { requestId, userId } = req as { requestId: string; userId: string };
+    const { requestId, userId, source } = req as { requestId: string; userId: string; source: string };
 
     try {
-      const source = detectRequestSource(req.body);
-      logInfo(requestId, "Request source detected", { source });
-      console.log("BODY ", req.body);
-
-      // Process based on source
+      // Process based on source (already detected by middleware)
       const result =
         source === "website"
           ? await handleWebsiteRequest(req.body, requestId)
