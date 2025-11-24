@@ -62,9 +62,9 @@ export function fireN8nWebhookAsync(
 }
 
 /**
- * Fetch recent N8N executions and find completed ones
+ * Fetch recent N8N executions and find completed/failed ones
  * @param requestId The request ID for logging
- * @returns Array of completed executions with appraisal IDs
+ * @returns Array of completed/failed executions with appraisal IDs
  */
 export async function fetchRecentN8nExecutions(
   requestId: string
@@ -73,8 +73,9 @@ export async function fetchRecentN8nExecutions(
   executions?: Array<{
     executionId: string;
     appraisalId: string;
-    status: string;
-    result: N8nAppraisalResponse;
+    status: 'completed' | 'failed';
+    result?: N8nAppraisalResponse;
+    error?: string;
   }>;
   error?: string;
 }> {
@@ -92,7 +93,7 @@ export async function fetchRecentN8nExecutions(
     const url = new URL(webhookUrl);
     const baseUrl = `${url.protocol}//${url.host}`;
 
-    // Fetch recent successful executions (last 50)
+    // Fetch recent executions (both success and error) - last 50
     const apiUrl = `${baseUrl}/api/v1/executions?workflowId=${workflowId}&limit=50&includeData=true`;
 
     logDebug(requestId, "Fetching recent N8N executions", { api_url: apiUrl });
@@ -123,12 +124,48 @@ export async function fetchRecentN8nExecutions(
       return { success: true, executions: [] };
     }
 
-    // Parse executions and extract results
+    // Parse executions and extract results (both success and error)
     const executions = data.data
-      .filter((exec: Record<string, unknown>) => exec.finished === true && exec.status === 'success')
+      .filter((exec: Record<string, unknown>) =>
+        exec.finished === true && (exec.status === 'success' || exec.status === 'error')
+      )
       .map((exec: Record<string, unknown>) => {
         try {
-          // Extract result from last node's output
+          const executionStatus = exec.status as string;
+
+          // Handle failed executions
+          if (executionStatus === 'error') {
+            // Try to extract appraisal_id from input data
+            const execData = exec.data as Record<string, unknown> | undefined;
+            const startData = execData?.startData as Record<string, unknown> | undefined;
+            const inputData = startData?.data as Record<string, unknown> | undefined;
+            const main = inputData?.main as unknown[][];
+            const jsonData = main?.[0]?.[0] as Record<string, unknown> | undefined;
+            const inputPayload = jsonData?.json as Record<string, unknown> | undefined;
+
+            const appraisalId = inputPayload?.appraisal_id || inputPayload?.appraisalId;
+
+            if (!appraisalId || typeof appraisalId !== 'string') {
+              logDebug(requestId, "Failed execution missing appraisal_id", {
+                execution_id: exec.id
+              });
+              return null;
+            }
+
+            // Extract error message
+            const errorData = execData?.resultData as Record<string, unknown> | undefined;
+            const lastError = errorData?.lastNodeExecuted as string | undefined;
+            const errorMessage = `N8N workflow failed at node: ${lastError || 'unknown'}`;
+
+            return {
+              executionId: exec.id as string,
+              appraisalId: appraisalId,
+              status: 'failed' as const,
+              error: errorMessage
+            };
+          }
+
+          // Handle successful executions
           const execData = exec.data as Record<string, unknown> | undefined;
           const resultData = execData?.resultData as Record<string, unknown> | undefined;
           const runData = resultData?.runData as Record<string, unknown> | undefined;
@@ -159,7 +196,7 @@ export async function fetchRecentN8nExecutions(
           return {
             executionId: exec.id as string,
             appraisalId: appraisalId,
-            status: 'completed',
+            status: 'completed' as const,
             result: json as unknown as N8nAppraisalResponse
           };
         } catch (err) {
@@ -170,7 +207,7 @@ export async function fetchRecentN8nExecutions(
           return null;
         }
       })
-      .filter((exec: { executionId: string; appraisalId: string; status: string; result: N8nAppraisalResponse } | null): exec is { executionId: string; appraisalId: string; status: string; result: N8nAppraisalResponse } => exec !== null);
+      .filter((exec: { executionId: string; appraisalId: string; status: 'completed' | 'failed'; result?: N8nAppraisalResponse; error?: string } | null): exec is { executionId: string; appraisalId: string; status: 'completed' | 'failed'; result?: N8nAppraisalResponse; error?: string } => exec !== null);
 
     logInfo(requestId, "Fetched N8N executions", {
       total_fetched: data.data.length,

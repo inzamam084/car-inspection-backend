@@ -105,38 +105,90 @@ export async function pollN8nAndUpdateInspections(
         const execution = executionMap.get(appraisalId);
 
         if (execution) {
-          // Found matching execution - process it
-          logInfo(requestId, `Processing completed execution`, {
-            appraisal_id: appraisalId,
-            execution_id: execution.executionId,
-            user_id: userId,
-          });
-
-          // Save report and track usage
-          const saveResult = await saveReportAndTrackUsage(
-            appraisalId,
-            userId,
-            execution.result,
-            requestId
-          );
-
-          if (saveResult.success) {
-            processed++;
-            details.push(
-              `✓ Processed appraisal ${appraisalId} (execution ${execution.executionId})`
-            );
-            logInfo(requestId, `Successfully processed appraisal`, {
+          // Check if execution failed or succeeded
+          if (execution.status === 'failed') {
+            // N8N workflow failed - mark inspection as failed
+            logInfo(requestId, `Processing failed execution`, {
               appraisal_id: appraisalId,
+              execution_id: execution.executionId,
+              error: execution.error,
             });
+
+            const { error: updateError } = await supabase
+              .from("inspections")
+              .update({
+                status: "failed",
+                error_message: execution.error || "N8N workflow failed",
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", appraisalId);
+
+            if (updateError) {
+              errors++;
+              details.push(
+                `✗ Failed to update failed inspection ${appraisalId}: ${updateError.message}`
+              );
+              logError(requestId, `Failed to update failed inspection`, {
+                appraisal_id: appraisalId,
+                error: updateError.message,
+              });
+            } else {
+              processed++;
+              details.push(
+                `✗ Marked appraisal ${appraisalId} as failed (execution ${execution.executionId})`
+              );
+              logInfo(requestId, `Marked inspection as failed`, {
+                appraisal_id: appraisalId,
+                error: execution.error,
+              });
+            }
           } else {
-            errors++;
-            details.push(
-              `✗ Failed to save appraisal ${appraisalId}: ${saveResult.error}`
-            );
-            logError(requestId, `Failed to save appraisal`, {
+            // N8N workflow succeeded - save report and track usage
+            logInfo(requestId, `Processing completed execution`, {
               appraisal_id: appraisalId,
-              error: saveResult.error,
+              execution_id: execution.executionId,
+              user_id: userId,
             });
+
+            // Validate that result exists for successful executions
+            if (!execution.result) {
+              errors++;
+              details.push(
+                `✗ No result data for successful execution ${appraisalId}`
+              );
+              logError(requestId, `Missing result data for successful execution`, {
+                appraisal_id: appraisalId,
+                execution_id: execution.executionId,
+              });
+              continue;
+            }
+
+            // Save report and track usage
+            const saveResult = await saveReportAndTrackUsage(
+              appraisalId,
+              userId,
+              execution.result,
+              requestId
+            );
+
+            if (saveResult.success) {
+              processed++;
+              details.push(
+                `✓ Processed appraisal ${appraisalId} (execution ${execution.executionId})`
+              );
+              logInfo(requestId, `Successfully processed appraisal`, {
+                appraisal_id: appraisalId,
+              });
+            } else {
+              errors++;
+              details.push(
+                `✗ Failed to save appraisal ${appraisalId}: ${saveResult.error}`
+              );
+              logError(requestId, `Failed to save appraisal`, {
+                appraisal_id: appraisalId,
+                error: saveResult.error,
+              });
+            }
           }
         } else {
           // No matching execution found - check if timed out
