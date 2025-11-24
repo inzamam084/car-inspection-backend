@@ -43,25 +43,10 @@ router.post("/send", async (req: Request, res: Response) => {
       status,
     });
 
-    // Fetch inspection details including user info
+    // Fetch inspection details
     const { data: inspection, error: fetchError } = await supabase
       .from("inspections")
-      .select(`
-        id,
-        vin,
-        status,
-        error_message,
-        created_at,
-        users (
-          id,
-          email,
-          full_name
-        ),
-        reports (
-          id,
-          html_report
-        )
-      `)
+      .select("id, vin, status, error_message, user_id")
       .eq("id", inspection_id)
       .single();
 
@@ -75,12 +60,20 @@ router.post("/send", async (req: Request, res: Response) => {
       });
     }
 
-    const user = inspection.users as { id: string; email: string; full_name: string } | null;
-    const report = (inspection.reports as Array<{ id: string; html_report: string }> | null)?.[0];
+    // Fetch user email from profiles
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("id", inspection.user_id)
+      .single();
 
-    if (!user || !user.email) {
-      logError(requestId, "User email not found", { inspection_id });
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+    if (profileError || !profile || !profile.email) {
+      logError(requestId, "Failed to fetch user email from profiles", {
+        inspection_id,
+        user_id: inspection.user_id,
+        error: profileError?.message,
+      });
+      return res.status(HTTP_STATUS.NOT_FOUND).json({
         error: "User email not found",
       });
     }
@@ -95,14 +88,11 @@ router.post("/send", async (req: Request, res: Response) => {
 
     logInfo(requestId, "Sending email notification", {
       inspection_id,
-      user_email: user.email,
+      user_email: profile.email,
       status,
-      has_report: !!report,
     });
 
     // Prepare email content based on status
-    // Extract user name from full_name or email
-    const userName = user.full_name || user.email.split('@')[0];
     const subject = status === "done"
       ? `Your Car Inspection Report is Ready - VIN: ${inspection.vin}`
       : `Car Inspection Failed - VIN: ${inspection.vin}`;
@@ -111,16 +101,12 @@ router.post("/send", async (req: Request, res: Response) => {
 
     if (status === "done") {
       // Success email template
-      const reportUrl = report?.id
-        ? `${FRONTEND_URL}/report/${report.id}`
-        : `${FRONTEND_URL}/inspections/${inspection_id}`;
+      const reportUrl = `${FRONTEND_URL}/report/${inspection_id}`;
 
       htmlBody = `
 <!DOCTYPE html>
 <html>
 <body style="font-family: Arial, sans-serif; padding: 20px;">
-  <p>Hi ${userName},</p>
-
   <p>Your car inspection report for VIN: <strong>${inspection.vin}</strong> is ready.</p>
 
   <p><a href="${reportUrl}" style="color: #007bff;">View Your Report</a></p>
@@ -139,8 +125,6 @@ router.post("/send", async (req: Request, res: Response) => {
 <!DOCTYPE html>
 <html>
 <body style="font-family: Arial, sans-serif; padding: 20px;">
-  <p>Hi ${userName},</p>
-
   <p>We encountered an issue while processing your car inspection for VIN: <strong>${inspection.vin}</strong>.</p>
 
   <p style="color: #666;"><strong>Error:</strong> ${errorMessage}</p>
@@ -160,7 +144,7 @@ router.post("/send", async (req: Request, res: Response) => {
     // Send email via SMTP2GO
     const emailPayload = {
       api_key: SMTP2GO_API_KEY,
-      to: [user.email],
+      to: [profile.email],
       sender: '"FixPilot" <noreply@fixpilot.co>',
       subject: subject,
       html_body: htmlBody,
@@ -168,7 +152,7 @@ router.post("/send", async (req: Request, res: Response) => {
 
     logDebug(requestId, "Sending email via SMTP2GO", {
       inspection_id,
-      to: user.email,
+      to: profile.email,
       subject,
     });
 
@@ -211,7 +195,7 @@ router.post("/send", async (req: Request, res: Response) => {
     logInfo(requestId, "Email sent successfully", {
       inspection_id,
       email_id: emailResult.request_id,
-      user_email: user.email,
+      user_email: profile.email,
       status,
     });
 
@@ -220,7 +204,7 @@ router.post("/send", async (req: Request, res: Response) => {
       success: true,
       message: "Email notification sent successfully",
       inspection_id,
-      user_email: user.email,
+      user_email: profile.email,
       status,
       email_id: emailResult.request_id,
     });
