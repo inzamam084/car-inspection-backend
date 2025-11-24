@@ -93,7 +93,7 @@ export async function fetchRecentN8nExecutions(
     const baseUrl = `${url.protocol}//${url.host}`;
 
     // Fetch recent successful executions (last 50)
-    const apiUrl = `${baseUrl}/api/v1/executions?workflowId=${workflowId}&limit=50&includeData=true&status=success`;
+    const apiUrl = `${baseUrl}/api/v1/executions?workflowId=${workflowId}&limit=50&includeData=true`;
 
     logDebug(requestId, "Fetching recent N8N executions", { api_url: apiUrl });
 
