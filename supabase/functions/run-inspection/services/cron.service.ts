@@ -7,6 +7,7 @@ import {
 import { supabase } from "../config/supabase.config.ts";
 
 const TIMEOUT_THRESHOLD_MINUTES = 15;
+const PROCESSING_WINDOW_MINUTES = 20;
 
 /**
  * Poll N8N for completed executions and update inspections
@@ -29,7 +30,45 @@ export async function pollN8nAndUpdateInspections(
   try {
     logInfo(requestId, "Starting N8N polling cycle");
 
-    // 1. Fetch recent completed N8N executions
+    // 1. First, fetch processing inspections from last 20 minutes
+    const processingThreshold = new Date(
+      Date.now() - PROCESSING_WINDOW_MINUTES * 60 * 1000
+    ).toISOString();
+
+    const { data: processingInspections, error: inspectionError } = await supabase
+      .from("inspections")
+      .select("id, user_id, created_at, updated_at")
+      .eq("status", "processing")
+      .gte("updated_at", processingThreshold);
+
+    if (inspectionError) {
+      logError(requestId, "Failed to fetch processing inspections", {
+        error: inspectionError.message,
+      });
+      return {
+        success: false,
+        processed: 0,
+        timedOut: 0,
+        errors: 1,
+        details: [`Failed to fetch processing inspections: ${inspectionError.message}`],
+      };
+    }
+
+    // Early exit if no processing inspections
+    if (!processingInspections || processingInspections.length === 0) {
+      logInfo(requestId, "No processing inspections found, skipping N8N API call");
+      return {
+        success: true,
+        processed: 0,
+        timedOut: 0,
+        errors: 0,
+        details: ["No processing inspections to check"],
+      };
+    }
+
+    logInfo(requestId, `Found ${processingInspections.length} processing inspections`);
+
+    // 2. Only now fetch N8N executions since we have inspections to match
     const executionsResult = await fetchRecentN8nExecutions(requestId);
 
     if (!executionsResult.success) {
@@ -48,136 +87,106 @@ export async function pollN8nAndUpdateInspections(
     const executions = executionsResult.executions || [];
     logInfo(requestId, `Found ${executions.length} completed N8N executions`);
 
-    // 2. Process each completed execution
-    for (const execution of executions) {
-      const { appraisalId, executionId, result } = execution;
+    // 3. Create a map of executions by appraisal_id for quick lookup
+    const executionMap = new Map(
+      executions.map((exec) => [exec.appraisalId, exec])
+    );
+
+    // 4. Process each processing inspection
+    const timeoutThreshold = new Date(
+      Date.now() - TIMEOUT_THRESHOLD_MINUTES * 60 * 1000
+    ).toISOString();
+
+    for (const inspection of processingInspections) {
+      const { id: appraisalId, user_id: userId, updated_at } = inspection;
 
       try {
-        // Check if inspection exists and is still in processing state
-        const { data: inspection, error } = await supabase
-          .from("inspections")
-          .select("id, status, user_id, created_at")
-          .eq("id", appraisalId)
-          .single();
+        // Check if there's a matching N8N execution for this inspection
+        const execution = executionMap.get(appraisalId);
 
-        if (error || !inspection) {
-          logDebug(requestId, `Inspection not found for appraisal_id`, {
+        if (execution) {
+          // Found matching execution - process it
+          logInfo(requestId, `Processing completed execution`, {
             appraisal_id: appraisalId,
-            execution_id: executionId,
+            execution_id: execution.executionId,
+            user_id: userId,
           });
-          continue;
-        }
 
-        // Skip if already processed
-        if (inspection.status !== "processing") {
-          logDebug(requestId, `Inspection already processed`, {
-            appraisal_id: appraisalId,
-            status: inspection.status,
-          });
-          continue;
-        }
-
-        logInfo(requestId, `Processing completed execution`, {
-          appraisal_id: appraisalId,
-          execution_id: executionId,
-          user_id: inspection.user_id,
-        });
-
-        // Save report and track usage
-        const saveResult = await saveReportAndTrackUsage(
-          appraisalId,
-          inspection.user_id,
-          result,
-          requestId
-        );
-
-        if (saveResult.success) {
-          processed++;
-          details.push(
-            `✓ Processed appraisal ${appraisalId} (execution ${executionId})`
+          // Save report and track usage
+          const saveResult = await saveReportAndTrackUsage(
+            appraisalId,
+            userId,
+            execution.result,
+            requestId
           );
-          logInfo(requestId, `Successfully processed appraisal`, {
-            appraisal_id: appraisalId,
-          });
+
+          if (saveResult.success) {
+            processed++;
+            details.push(
+              `✓ Processed appraisal ${appraisalId} (execution ${execution.executionId})`
+            );
+            logInfo(requestId, `Successfully processed appraisal`, {
+              appraisal_id: appraisalId,
+            });
+          } else {
+            errors++;
+            details.push(
+              `✗ Failed to save appraisal ${appraisalId}: ${saveResult.error}`
+            );
+            logError(requestId, `Failed to save appraisal`, {
+              appraisal_id: appraisalId,
+              error: saveResult.error,
+            });
+          }
         } else {
-          errors++;
-          details.push(
-            `✗ Failed to save appraisal ${appraisalId}: ${saveResult.error}`
-          );
-          logError(requestId, `Failed to save appraisal`, {
-            appraisal_id: appraisalId,
-            error: saveResult.error,
-          });
+          // No matching execution found - check if timed out
+          if (updated_at < timeoutThreshold) {
+            logInfo(requestId, "Inspection timed out", {
+              appraisal_id: appraisalId,
+              updated_at,
+            });
+
+            const { error: updateError } = await supabase
+              .from("inspections")
+              .update({
+                status: "failed",
+                error_message: `Processing timeout after ${TIMEOUT_THRESHOLD_MINUTES} minutes`,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", appraisalId);
+
+            if (updateError) {
+              logError(requestId, "Failed to mark inspection as timed out", {
+                inspection_id: appraisalId,
+                error: updateError.message,
+              });
+              errors++;
+              details.push(
+                `✗ Failed to timeout inspection ${appraisalId}: ${updateError.message}`
+              );
+            } else {
+              timedOut++;
+              details.push(`⏱ Timed out inspection ${appraisalId}`);
+              logInfo(requestId, "Marked inspection as timed out", {
+                inspection_id: appraisalId,
+              });
+            }
+          } else {
+            // Still processing, not timed out yet
+            logDebug(requestId, "Inspection still processing", {
+              appraisal_id: appraisalId,
+              updated_at,
+            });
+          }
         }
       } catch (error) {
         errors++;
         const message = error instanceof Error ? error.message : String(error);
         details.push(`✗ Error processing ${appraisalId}: ${message}`);
-        logError(requestId, `Exception processing appraisal`, {
+        logError(requestId, `Exception processing inspection`, {
           appraisal_id: appraisalId,
           error: message,
         });
-      }
-    }
-
-    // 3. Check for timed-out inspections (stuck in processing for >15 minutes)
-    const timeoutThreshold = new Date(
-      Date.now() - TIMEOUT_THRESHOLD_MINUTES * 60 * 1000
-    ).toISOString();
-
-    const { data: stuckInspections, error: stuckError } = await supabase
-      .from("inspections")
-      .select("id, user_id, created_at")
-      .eq("status", "processing")
-      .lt("updated_at", timeoutThreshold);
-
-    if (stuckError) {
-      logError(requestId, "Failed to fetch stuck inspections", {
-        error: stuckError.message,
-      });
-    } else if (stuckInspections && stuckInspections.length > 0) {
-      logInfo(
-        requestId,
-        `Found ${stuckInspections.length} timed-out inspections`
-      );
-
-      for (const inspection of stuckInspections) {
-        try {
-          const { error: updateError } = await supabase
-            .from("inspections")
-            .update({
-              status: "failed",
-              error_message: `Processing timeout after ${TIMEOUT_THRESHOLD_MINUTES} minutes`,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", inspection.id);
-
-          if (updateError) {
-            logError(requestId, "Failed to mark inspection as timed out", {
-              inspection_id: inspection.id,
-              error: updateError.message,
-            });
-            errors++;
-            details.push(
-              `✗ Failed to timeout inspection ${inspection.id}: ${updateError.message}`
-            );
-          } else {
-            timedOut++;
-            details.push(`⏱ Timed out inspection ${inspection.id}`);
-            logInfo(requestId, "Marked inspection as timed out", {
-              inspection_id: inspection.id,
-            });
-          }
-        } catch (error) {
-          errors++;
-          const message =
-            error instanceof Error ? error.message : String(error);
-          details.push(`✗ Error timing out ${inspection.id}: ${message}`);
-          logError(requestId, "Exception timing out inspection", {
-            inspection_id: inspection.id,
-            error: message,
-          });
-        }
       }
     }
 
@@ -185,6 +194,7 @@ export async function pollN8nAndUpdateInspections(
       processed,
       timedOut,
       errors,
+      total_inspections: processingInspections.length,
     });
 
     return {
