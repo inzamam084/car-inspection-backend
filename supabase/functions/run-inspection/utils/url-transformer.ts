@@ -288,6 +288,40 @@ function isCarMaxUrl(url: string): boolean {
 }
 
 /**
+ * Transform Manheim (Fyuse) image URLs to high quality
+ * Removes _thumb suffix from the filename
+ *
+ * @param url - Original Manheim/Fyuse image URL
+ * @returns Transformed URL without _thumb suffix
+ *
+ * @example
+ * transformManheimUrl('https://i.fyuse.com/group/m2nmnppabvii728n/n103xkfmc4y2i/snaps/key_16_146190_thumb.jpg')
+ * // Returns: 'https://i.fyuse.com/group/m2nmnppabvii728n/n103xkfmc4y2i/snaps/key_16_146190.jpg'
+ */
+function transformManheimUrl(url: string): string {
+  // Remove _thumb suffix before the file extension
+  const thumbPattern = /_thumb\.jpg$/i;
+
+  if (thumbPattern.test(url)) {
+    return url.replace(thumbPattern, '.jpg');
+  }
+
+  return url;
+}
+
+/**
+ * Check if URL is from Manheim/Fyuse domain
+ */
+function isManheimUrl(url: string): boolean {
+  try {
+    const urlObj = new URL(url);
+    return urlObj.hostname.includes('fyuse.com');
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Transform image URL based on domain for higher quality
  * Currently supports:
  * - Copart (cs.copart.com): _ful.jpg -> _hrs.jpg, _vful.jpg -> _vhrs.jpg, _thb.jpg -> _hrs.jpg
@@ -297,6 +331,7 @@ function isCarMaxUrl(url: string): boolean {
  * - AutoTrader (images2.autotrader.com): width=800 -> width=1600, height=600 -> height=1200
  * - Bring a Trailer (bringatrailer.com): resize=155%2C105 -> w=1200
  * - CarMax (img2.carmax.com): width=400 -> width=1600, height=300 -> height=1200
+ * - Manheim (i.fyuse.com): key_16_146190_thumb.jpg -> key_16_146190.jpg
  *
  * Note: autobidmaster.com uses Copart's CDN (cs.copart.com), so transformations apply
  *
@@ -330,6 +365,10 @@ export function transformImageUrl(url: string): string {
 
   if (isCarMaxUrl(url)) {
     return transformCarMaxUrl(url);
+  }
+
+  if (isManheimUrl(url)) {
+    return transformManheimUrl(url);
   }
 
   // Add more domain-specific transformations here as needed
