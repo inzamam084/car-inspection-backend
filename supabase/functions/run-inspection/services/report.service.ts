@@ -1,6 +1,5 @@
 import { supabase } from "../config/supabase.config.ts";
 import { logInfo, logError, logDebug } from "../utils/logger.ts";
-import { withSubscriptionCheck } from "../../shared/subscription-middleware.ts";
 import type { N8nAppraisalResponse } from "../types/index.ts";
 
 /**
@@ -239,19 +238,21 @@ export async function saveReportAndTrackUsage(
       });
     }
 
-    // 3. Track usage
-    const usageCheck = await withSubscriptionCheck(userId, {
-      requireSubscription: false,
-      checkUsageLimit: true,
-      trackUsage: true,
-      inspectionId: inspectionId,
-      reportId: saveResult.reportId,
-      allowBlockUsage: true,
-      hadHistory: false,
+    // 3. Track usage - Direct RPC call
+    const { data: usageCheck, error: rpcError } = await supabase.rpc("with_subscription_check", {
+      p_user_id: userId,
+      p_require_subscription: true, // Active subscription always required
+      p_check_usage_limit: true,
+      p_track_usage: true,
+      p_inspection_id: inspectionId,
+      p_report_id: saveResult.reportId,
+      p_had_history: false,
+      p_allow_block_usage: true,
     });
 
-    if (!usageCheck.success) {
-      const { code, error } = usageCheck;
+    if (rpcError || !usageCheck?.success) {
+      const error = usageCheck?.error || rpcError?.message || "Unknown error";
+      const code = usageCheck?.code || "INTERNAL_ERROR";
 
       logError(requestId, "Usage tracking failed", {
         code,
@@ -266,11 +267,12 @@ export async function saveReportAndTrackUsage(
         error
       );
     } else {
-      const { usageType, remainingReports } = usageCheck;
+      const { usage_type, remaining_reports, parent_carryover } = usageCheck;
 
       logInfo(requestId, "Usage tracked successfully", {
-        usage_type: usageType,
-        remaining_reports: remainingReports,
+        usage_type,
+        remaining_reports,
+        parent_carryover,
         report_id: saveResult.reportId,
         inspection_id: inspectionId
       });
