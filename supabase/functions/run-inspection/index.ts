@@ -24,7 +24,7 @@ app.use("/run-inspection", appraisalRoutes);
 app.use("/run-inspection/n8n", n8nRoutes);
 app.use("/run-inspection/email", emailRoutes);
 
-// Error handling (must be last)
+// Error handling (must be last) 
 app.use(notFoundHandler);
 app.use(globalErrorHandler);
 
