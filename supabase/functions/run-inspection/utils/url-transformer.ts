@@ -289,24 +289,38 @@ function isCarMaxUrl(url: string): boolean {
 
 /**
  * Transform Manheim (Fyuse) image URLs to high quality
- * Removes _thumb suffix from the filename
+ * - Removes _thumb suffix from the filename (Fyuse CDN)
+ * - Removes size query parameter (Manheim CDN)
  *
  * @param url - Original Manheim/Fyuse image URL
- * @returns Transformed URL without _thumb suffix
+ * @returns Transformed URL without _thumb suffix or size parameter
  *
  * @example
  * transformManheimUrl('https://i.fyuse.com/group/m2nmnppabvii728n/n103xkfmc4y2i/snaps/key_16_146190_thumb.jpg')
  * // Returns: 'https://i.fyuse.com/group/m2nmnppabvii728n/n103xkfmc4y2i/snaps/key_16_146190.jpg'
+ *
+ * @example
+ * transformManheimUrl('https://images.cdn.manheim.com/20251202211058-17b1de5d-b3f2-4646-b0ec-44f6dc16b48b.jpg?size=w86h64')
+ * // Returns: 'https://images.cdn.manheim.com/20251202211058-17b1de5d-b3f2-4646-b0ec-44f6dc16b48b.jpg'
  */
 function transformManheimUrl(url: string): string {
-  // Remove _thumb suffix before the file extension
-  const thumbPattern = /_thumb\.jpg$/i;
+  let transformedUrl = url;
 
-  if (thumbPattern.test(url)) {
-    return url.replace(thumbPattern, '.jpg');
+  // Remove _thumb suffix before the file extension (Fyuse CDN)
+  const thumbPattern = /_thumb\.jpg$/i;
+  if (thumbPattern.test(transformedUrl)) {
+    transformedUrl = transformedUrl.replace(thumbPattern, '.jpg');
   }
 
-  return url;
+  // Remove size query parameter (Manheim CDN: ?size=w86h64)
+  const sizePattern = /[?&]size=[^&]+/i;
+  if (sizePattern.test(transformedUrl)) {
+    transformedUrl = transformedUrl.replace(sizePattern, '');
+    // Clean up trailing ? or & if they exist
+    transformedUrl = transformedUrl.replace(/[?&]$/, '');
+  }
+
+  return transformedUrl;
 }
 
 /**
@@ -315,7 +329,8 @@ function transformManheimUrl(url: string): string {
 function isManheimUrl(url: string): boolean {
   try {
     const urlObj = new URL(url);
-    return urlObj.hostname.includes('fyuse.com');
+    return urlObj.hostname.includes('fyuse.com') ||
+           urlObj.hostname.includes('manheim.com');
   } catch {
     return false;
   }
@@ -331,7 +346,7 @@ function isManheimUrl(url: string): boolean {
  * - AutoTrader (images2.autotrader.com): width=800 -> width=1600, height=600 -> height=1200
  * - Bring a Trailer (bringatrailer.com): resize=155%2C105 -> w=1200
  * - CarMax (img2.carmax.com): width=400 -> width=1600, height=300 -> height=1200
- * - Manheim (i.fyuse.com): key_16_146190_thumb.jpg -> key_16_146190.jpg
+ * - Manheim (i.fyuse.com, images.cdn.manheim.com): _thumb.jpg removed, size query param removed
  *
  * Note: autobidmaster.com uses Copart's CDN (cs.copart.com), so transformations apply
  *
