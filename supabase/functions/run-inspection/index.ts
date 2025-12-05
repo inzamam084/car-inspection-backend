@@ -8,6 +8,7 @@ import {
 import appraisalRoutes from "./routes/appraisal.routes.ts";
 import n8nRoutes from "./routes/n8n.routes.ts";
 import emailRoutes from "./routes/email.routes.ts";
+import aiRoutes from "./routes/ai.routes.ts";
 
 const app = express();
 const port = 3000;
@@ -23,6 +24,7 @@ app.use(loggingMiddleware);
 app.use("/run-inspection", appraisalRoutes);
 app.use("/run-inspection/n8n", n8nRoutes);
 app.use("/run-inspection/email", emailRoutes);
+app.use("/run-inspection/ai", aiRoutes);
 
 // Error handling (must be last) 
 app.use(notFoundHandler);
