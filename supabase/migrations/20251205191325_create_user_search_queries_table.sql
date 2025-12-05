@@ -83,44 +83,44 @@ CREATE TRIGGER update_user_search_queries_updated_at_trigger
   FOR EACH ROW
   EXECUTE FUNCTION update_user_search_queries_updated_at();
 
--- Enable Row Level Security
-ALTER TABLE public.user_search_queries ENABLE ROW LEVEL SECURITY;
+-- -- Enable Row Level Security
+-- ALTER TABLE public.user_search_queries ENABLE ROW LEVEL SECURITY;
 
--- Create RLS policies
--- Users can view their own search queries
-CREATE POLICY "Users can view own search queries"
-ON public.user_search_queries
-FOR SELECT
-USING (auth.uid() = user_id);
+-- -- Create RLS policies
+-- -- Users can view their own search queries
+-- CREATE POLICY "Users can view own search queries"
+-- ON public.user_search_queries
+-- FOR SELECT
+-- USING (auth.uid() = user_id);
 
--- Users can insert their own search queries
-CREATE POLICY "Users can insert own search queries"
-ON public.user_search_queries
-FOR INSERT
-WITH CHECK (auth.uid() = user_id);
+-- -- Users can insert their own search queries
+-- CREATE POLICY "Users can insert own search queries"
+-- ON public.user_search_queries
+-- FOR INSERT
+-- WITH CHECK (auth.uid() = user_id);
 
--- Users can update their own search queries
-CREATE POLICY "Users can update own search queries"
-ON public.user_search_queries
-FOR UPDATE
-USING (auth.uid() = user_id);
+-- -- Users can update their own search queries
+-- CREATE POLICY "Users can update own search queries"
+-- ON public.user_search_queries
+-- FOR UPDATE
+-- USING (auth.uid() = user_id);
 
--- Users can delete their own search queries
-CREATE POLICY "Users can delete own search queries"
-ON public.user_search_queries
-FOR DELETE
-USING (auth.uid() = user_id);
+-- -- Users can delete their own search queries
+-- CREATE POLICY "Users can delete own search queries"
+-- ON public.user_search_queries
+-- FOR DELETE
+-- USING (auth.uid() = user_id);
 
--- Service role has full access
-CREATE POLICY "Service role has full access to search queries"
-ON public.user_search_queries
-FOR ALL
-USING (true);
+-- -- Service role has full access
+-- CREATE POLICY "Service role has full access to search queries"
+-- ON public.user_search_queries
+-- FOR ALL
+-- USING (true);
 
--- Grant permissions
-GRANT ALL ON TABLE public.user_search_queries TO authenticated;
-GRANT SELECT ON TABLE public.user_search_queries TO anon;
-GRANT ALL ON TABLE public.user_search_queries TO service_role;
+-- -- Grant permissions
+-- GRANT ALL ON TABLE public.user_search_queries TO authenticated;
+-- GRANT SELECT ON TABLE public.user_search_queries TO anon;
+-- GRANT ALL ON TABLE public.user_search_queries TO service_role;
 
 -- -- Create a view for user search history with aggregated stats
 -- CREATE OR REPLACE VIEW public.user_search_history AS
