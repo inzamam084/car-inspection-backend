@@ -9,6 +9,7 @@ import type {
   GenerateFiltersRequest,
   RankListingsRequest,
 } from "../services/gemini.service.ts";
+import { supabase } from "../config/supabase.config.ts";
 
 const router = Router();
 
@@ -57,7 +58,26 @@ router.post(
         });
       }
 
+      // Create initial search query record
+      const { data: searchQuery, error: insertError } = await supabase
+        .from("user_search_queries")
+        .insert({
+          user_id: userId,
+          search_query: description,
+          platform_name: platformName,
+          status: "pending",
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        logError(requestId, "Failed to create search query record", {
+          error: insertError.message,
+        });
+      }
+
       // Call Gemini service
+      const startTime = Date.now();
       const result = await generateFiltersWithGemini(
         {
           description,
@@ -66,11 +86,36 @@ router.post(
         },
         requestId
       );
+      const filterGenerationTime = Date.now() - startTime;
 
       if (!result.success) {
+        // Update search query with error
+        if (searchQuery) {
+          await supabase
+            .from("user_search_queries")
+            .update({
+              status: "failed",
+              error_message: result.error,
+              filter_generation_time_ms: filterGenerationTime,
+            })
+            .eq("id", searchQuery.id);
+        }
+
         return res.status(HTTP_STATUS.BAD_REQUEST).json({
           error: result.error,
         });
+      }
+
+      // Update search query with generated filters
+      if (searchQuery) {
+        await supabase
+          .from("user_search_queries")
+          .update({
+            generated_filters: result.filters,
+            status: "filters_generated",
+            filter_generation_time_ms: filterGenerationTime,
+          })
+          .eq("id", searchQuery.id);
       }
 
       logInfo(requestId, "Filters generated successfully");
@@ -78,6 +123,7 @@ router.post(
       return res.status(HTTP_STATUS.OK).json({
         success: true,
         filters: result.filters,
+        searchQueryId: searchQuery?.id,
       });
     } catch (error) {
       const { message, stack } = error as Error;
@@ -107,11 +153,14 @@ router.post(
     };
 
     try {
-      const { description, listings } = req.body as RankListingsRequest;
+      const { description, listings, searchQueryId } = req.body as RankListingsRequest & {
+        searchQueryId?: string;
+      };
 
       logInfo(requestId, "Rank listings request", {
         user_id: "[PRESENT]",
         listingCount: listings?.length || 0,
+        hasSearchQueryId: !!searchQueryId,
       });
 
       // Validate request body
@@ -127,7 +176,19 @@ router.post(
         });
       }
 
+      // Update search query with scraped listings if searchQueryId provided
+      if (searchQueryId) {
+        await supabase
+          .from("user_search_queries")
+          .update({
+            scraped_listings: listings,
+            status: "listings_scraped",
+          })
+          .eq("id", searchQueryId);
+      }
+
       // Call Gemini service
+      const startTime = Date.now();
       const result = await rankListingsWithGemini(
         {
           description,
@@ -135,11 +196,36 @@ router.post(
         },
         requestId
       );
+      const rankingTime = Date.now() - startTime;
 
       if (!result.success) {
+        // Update search query with error
+        if (searchQueryId) {
+          await supabase
+            .from("user_search_queries")
+            .update({
+              status: "failed",
+              error_message: result.error,
+              ranking_time_ms: rankingTime,
+            })
+            .eq("id", searchQueryId);
+        }
+
         return res.status(HTTP_STATUS.BAD_REQUEST).json({
           error: result.error,
         });
+      }
+
+      // Update search query with ranked listings
+      if (searchQueryId) {
+        await supabase
+          .from("user_search_queries")
+          .update({
+            ranked_listings: result.rankedListings,
+            status: "ranked",
+            ranking_time_ms: rankingTime,
+          })
+          .eq("id", searchQueryId);
       }
 
       logInfo(requestId, "Listings ranked successfully");
